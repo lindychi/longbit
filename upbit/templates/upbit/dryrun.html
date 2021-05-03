@@ -1,0 +1,88 @@
+<h1>업비트</h1>
+
+<a href="{% url 'upbit:index' %}">자산</a></br>
+<a href="{% url 'upbit:dryrun' %}">드라이런</a></br>
+
+판매리스트</br>
+<table>
+    <tr>
+        <th>마켓</th>
+        <th>판매 대상 코인 수</th>
+        <th>판매 대상 한화 금액</th>
+        <th>판매 시, 버는 금액</th>
+        <th>수익률</th>
+        <th>매도</th>
+{% for s in sell_list %}
+    <tr>
+        <td>
+            {{ s.get_market }}
+        </td>
+        <td>
+            {{ s.get_sell_balance }} {{ s.get_currency }}
+        </td>
+        <td>
+            {{ s.get_block_price }} 원
+        </td>
+        <td>
+            {{ s.get_sell_change_price }} 원
+        </td>
+        <td>
+            {{ s.get_change_rate }} %
+        </td>
+        <td>
+            <form action="{% url 'upbit:sell_block' %}" method="POST">
+                {% csrf_token %}
+                <input name="market" type="hidden" value="{{ s.get_market }}">
+                <input name="volume" type="hidden" value="{{ s.get_sell_balance }}">
+                <input name="ord_type" type="hidden" value="market">
+                <input name="side" value="ask" type="hidden">
+                <input type="submit" value="매도">
+            </form>
+        </td>
+    </tr>
+{% endfor %}
+    <tr>
+        <td>합산</td>
+        <td></td>
+        <td>{{ sell_sum }} 원</td>
+        <td>{{ sell_change_sum }} 원</td>
+        <td>{{ sell_change_rate }}%</td>
+    </tr>
+</table>
+
+구매리스트</br>
+<table>
+{% for b in buy_list %}
+    <tr>
+        <td>
+            {{ b.get_market }}
+        </td>
+        <td>
+            {{ b.get_block_size }}
+        </td>
+        <td>
+            <form action="{% url 'upbit:sell_block' %}" method="POST">
+                {% csrf_token %}
+                <input name="market" type="hidden" value="{{ b.get_market }}">
+                <input name="price" type="hidden" value="{{ b.get_block_size }}">
+                <input name="ord_type" type="hidden" value="price">
+                <input name="side" value="bid" type="hidden">
+                <input type="submit" value="매수">
+            </form>
+        </td>
+    </tr>
+{% endfor %}
+    <tr>
+        <td>합산</td>
+        <td>{{ buy_sum }}</td>
+        <td>현재 원화</td>
+        <td>{{ krw.int_balance }}</td>
+        <td>
+            <form action="{% url 'upbit:deposit_krw' %}" method="POST">
+                {% csrf_token %}
+                <input type="hidden" name="amount" value="{{ krw.int_require }}">
+                <input type="submit" value="{{ krw.int_require }}원 추가 입금">
+            </form>
+        </td>
+    </tr>
+</table>
