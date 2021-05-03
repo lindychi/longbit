@@ -55,10 +55,16 @@
 {% for b in buy_list %}
     <tr>
         <td>
-            {{ b.get_market }}
+            {{ b.currency }}({{ b.get_market }})
+        </td>
+        <td>
+            {{ b.get_buy_krw_price }}원
         </td>
         <td>
             {{ b.get_block_size }}
+        </td>
+        <td>
+            {{ b.get_change_rate }}%
         </td>
         <td>
             <form action="{% url 'upbit:sell_block' %}" method="POST">

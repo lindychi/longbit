@@ -65,6 +65,7 @@ def index(request):
     for r in json_data:
         if 'KRW-'+r['currency'] in market_names:
             r['korean_name'] = market_names['KRW-'+r['currency']]['korean_name']
+            r['market'] = market_names['KRW-'+r['currency']]['market']
             account_names.append(market_names['KRW-'+r['currency']])
             del(market_names['KRW-'+r['currency']])
         else:
@@ -205,6 +206,8 @@ def dryrun(request):
     if sell_sum > 0:
         sell_change_rate = round(float(sell_change_sum / sell_sum * 100), 2)
 
+    buy_list = sorted(buy_list, key=lambda x:x.get_buy_krw_price()) 
+
     return render(request, 'upbit/dryrun.html', {'buy_list':buy_list, 'sell_list':sell_list, 'buy_sum':int(buy_sum), 'sell_change_sum':int(sell_change_sum), 'sell_sum':int(sell_sum), 'krw':krw, 'sell_change_rate':sell_change_rate})
 
 class Coin:
@@ -236,6 +239,12 @@ class Coin:
 
     def get_currency(self):
         return self.currency
+
+    def get_balance(self):
+        return self.balance
+
+    def get_buy_krw_price(self):
+        return int(self.balance * self.avg_buy_price)
 
     def input_ticker_price(self, ticker):
         if self.market != ticker['market']:
@@ -279,7 +288,7 @@ def sell_block(request):
 
         res = make_payload(request, '/v1/orders', query, method="POST")
         res_json = res.json()
-        print(res_json)
+        # print(res_json)
 
         if 'error' in res_json and res_json['error']['name'] == 'insufficient_funds_bid':
             query = {'amount': request.POST['price']}
