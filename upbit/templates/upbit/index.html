@@ -3,11 +3,13 @@
 <a href="{% url 'upbit:index' %}">자산</a></br>
 <a href="{% url 'upbit:dryrun' %}">드라이런</a></br>
 
+<a href="{% url 'upbit:refresh_data' %}">데이터 리프레쉬</a></br>
+
 <div>
     <div>
         <h2>원화: {{ krw_data.krw_price }}원</h2>
         <h3>총 주문금: {{ krw_data.total_order_balance }}원</h3>
-        <h3>총 입금액: {{ krw_data.total_deposit_balance }}원</h3>
+        <h3>총 입금액: {{ krw_data.total_deposit_balance }}원 ({{ krw_data.total_order_gap }}원 - {{ krw_data.total_order_gap_rate }}%)</h3>
     </div>
 </div>
 <table>
@@ -37,7 +39,7 @@
 {% for r in res %}
     <tr>
         <td>
-            {{ r.korean_name }}({{ r.market }})
+            <a href="{% url 'upbit:detail_market' r.market %}">{{ r.korean_name }}({{ r.market }})</a>
         </td>
         <td>
             {{ r.krw_real_price }}원
@@ -57,8 +59,10 @@
         <td>
             {{ r.block_count }}
         </td>
+        <td>
+            <a href="{% url 'upbit:refresh_market' r.market %}">갱신</a>
+        </td>
         {% comment %} {% if not r.avg_buy_price %} {% endcomment %}
-        {% if r.mine_change_percent < 7 %}
         <td>
             <form action="{% url 'upbit:sell_block' %}" method="POST">
                 {% csrf_token %}
@@ -69,7 +73,16 @@
                 <input type="submit" value="매수">
             </form>
         </td>
-        {% endif %}
+        <td>
+            <form action="{% url 'upbit:sell_block' %}" method="POST">
+                {% csrf_token %}
+                <input name="market" type="hidden" value="{{ r.market }}">
+                <input name="volume" type="hidden" value="{{ r.sell_balance }}">
+                <input name="ord_type" type="hidden" value="market">
+                <input name="side" value="ask" type="hidden">
+                <input type="submit" value="매도">
+            </form>
+        </td>
     </tr>    
 {% endfor %}
 </table>

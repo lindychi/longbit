@@ -1,9 +1,10 @@
 from io import IOBase
-from django.http.response import HttpResponseRedirect
+from os import curdir
+from django.http.response import HttpResponse, HttpResponseRedirect
 from django.utils import timezone
 from django.shortcuts import render
 from django.contrib.auth.decorators import login_required
-from .models import UpbitConfig, Market
+from .models import UpbitConfig, Market, Order
 
 import jwt
 import uuid
@@ -14,8 +15,8 @@ import json
 import datetime
 import time
 
-def make_payload(request, url, query={}, method="GET"):
-    config = UpbitConfig.objects.get(user=request.user)
+def make_payload(user, url, query={}, method="GET"):
+    config = UpbitConfig.objects.get(user=user)
     payload = {
         'access_key': config.access_key,
         'nonce': str(uuid.uuid4())
@@ -38,17 +39,23 @@ def make_payload(request, url, query={}, method="GET"):
     if method == "GET":
         return requests.get('https://api.upbit.com{}'.format(url), params=query_string, headers=headers)
     else:
-        print("post call")
         return requests.post('https://api.upbit.com{}'.format(url), params=query, headers=headers)
 
 def get_currency_list(request, currency='KRW'):
-    res = make_payload(request, '/v1/deposits', {'currency':currency})
-    return res.json()
+    total_res = []
+    page = 1
+    while True:
+        res = make_payload(request.user, '/v1/deposits', {'currency':currency, 'page':page})
+        total_res.extend(res.json())
+        if len(res.json()) < 100:
+            break
+        page = page + 1
+    return total_res
 
 # Create your views here.
 @login_required
 def index(request):
-    accounts_res = make_payload(request, '/v1/accounts')
+    accounts_res = make_payload(request.user, '/v1/accounts')
     json_data = accounts_res.json()
 
     market_codes = requests.request("GET", "https://api.upbit.com/v1/market/all")
@@ -69,7 +76,7 @@ def index(request):
             account_names.append(market_names['KRW-'+r['currency']])
             del(market_names['KRW-'+r['currency']])
         else:
-            print('KRW-'+r['currency'])
+            print('마켓에서 제외({})'.format('KRW-'+r['currency']))
 
         if float(r['avg_buy_price']) == 0:
             r['krw_price'] = int(float(r['balance']))
@@ -94,11 +101,15 @@ def index(request):
     # 입금액 정산
     total_deposit_krw = 0.0
     for deposit in get_currency_list(request):
-        if float(deposit['amount']) > 10000 and deposit['state'] == 'ACCEPTED':
+        if deposit['state'] == 'ACCEPTED':
             total_deposit_krw = total_deposit_krw + float(deposit['amount'])
+        elif deposit['state'] == 'REJECTED':
+            continue
         else:
             print(deposit)
     krw_data['total_deposit_balance'] = int(total_deposit_krw)
+    krw_data['total_order_gap'] = int(krw_data['total_order_balance']) - int(krw_data['total_deposit_balance']) + int(krw_data['krw_price'])
+    krw_data['total_order_gap_rate'] = round(float(int(krw_data['total_order_gap']) / int(krw_data['total_deposit_balance']) * 100), 2)
 
     markets = []
     for a in account_names+list(market_names.values()):
@@ -117,7 +128,7 @@ def index(request):
 
     query = {'markets':",".join(markets)}
 
-    ticker_prices = make_payload(request, '/v1/ticker', query).json()
+    ticker_prices = make_payload(request.user, '/v1/ticker', query).json()
 
     for t, k in zip(ticker_prices, krw_price_data):
         if t['market'] == 'KRW-'+k['currency']:
@@ -136,6 +147,10 @@ def index(request):
                     k['block_count'] = int(float(k['krw_price']) / 11000)# block value
                 else:
                     k['block_count'] = int(round(float(k['krw_price']) / 5500, 0))# block value
+                if int(k['block_count']) == 0 and float(k['balance']) > 0:
+                    k['sell_balance'] = float(k['balance'])
+                elif int(k['block_count']) > 0:
+                    k['sell_balance'] = float(k['balance']) / k['block_count']
             else:
                 k['mine_change_price'] = float(t['trade_price']) - float(t['highest_52_week_price'])
                 k['mine_change_rate'] = float(k['mine_change_price']) / float(t['highest_52_week_price'])
@@ -153,25 +168,171 @@ def index(request):
             zero_data_index = i
             break
 
+    for j in json_data[zero_data_index:]:
+        try:
+            market = Market.objects.get(user=request.user, market=j['market'])
+            j['avg_buy_price'] = market.get_avg_buy_price()
+            if j['avg_buy_price'] > 0:
+                j['mine_change_price'] = float(j['trade_price']) - float(j['avg_buy_price'])
+                j['mine_change_rate'] = float(j['mine_change_price']) / float(j['avg_buy_price'])
+                j['mine_change_percent'] = round(float(j['mine_change_rate']) * 100, 2)
+        except Market.DoesNotExist:
+            market = Market.objects.create(user=request.user, market=j['market'], last_order=timezone.now() - datetime.timedelta(days=7), update_date=timezone.now() - datetime.timedelta(days=7))
+
     json_data = json_data[0:zero_data_index] + sorted(json_data[zero_data_index:], key=lambda x:float(x['acc_trade_price_24h']), reverse=True)
     
     return render(request, 'upbit/index.html', {'krw_data':krw_data, 'res':json_data, 'market_codes':market_names})
 
 not_market_list = ["KRW", "VTHO"]
-buy_rate = 0
-sell_rate = 7
+alter_rate = 1
+not_alter_list = ['BTC', 'ETH']
 
-def dryrun(request):
-    accounts_res = make_payload(request, '/v1/accounts')
+def dryrun_inner(user):
+    config = UpbitConfig.objects.get(user=user)
+    accounts_res = make_payload(user, '/v1/accounts')
     coins = []
+    total_order_balance = 0.0
+    alter_count = 0
+    krw_price_list = {}
     for a in accounts_res.json():
         if a['currency'] not in not_market_list:
+            if a['currency'] not in not_alter_list:
+                alter_count = alter_count + 1
             coins.append(Coin(a))
+            krw_price_list[a['currency']] = float(a['balance']) * float(a['avg_buy_price'])
+            total_order_balance = total_order_balance + krw_price_list[a['currency']]
         elif a['currency'] == "KRW":
             krw = a
             krw['int_balance'] = int(float(krw['balance']))
     query={'markets':",".join(list(map(lambda x:x.get_market(), coins)))}
-    ticker_prices = make_payload(request, '/v1/ticker', query)
+    try:
+        ticker_prices_res = make_payload(user, '/v1/ticker', query)
+        ticker_prices = ticker_prices_res.json()
+    except json.decoder.JSONDecodeError:
+        print(ticker_prices_res)
+        return False
+
+    #총 주문액 + 잔금
+    total_balance = total_order_balance + krw['int_balance']
+    print("총 주문액 + 잔금액 = {}원".format(total_balance))
+
+    alter_order_balance = total_balance * alter_rate
+    one_alter_max_value = alter_order_balance / alter_count * config.alter_limit_block
+    print("알터코인 한종목의 최대 지분액: {}원({}%)".format(one_alter_max_value, round(one_alter_max_value/total_balance*100, 2)))
+    one_alter_max_block_count = one_alter_max_value / 5500
+    print("지분액 대비 블럭수: {}".format(one_alter_max_block_count))
+    alter_delay_on_oneday = 24 / one_alter_max_block_count
+    hour_delay = int(alter_delay_on_oneday)
+    minute_delay = int((alter_delay_on_oneday - hour_delay) * 60)
+    print("하루 내 알터코인 딜레이: {}   {}시 {}분".format(alter_delay_on_oneday, hour_delay, minute_delay))
+    alter_delay_on_onday_sec = hour_delay * 3600 + minute_delay * 60
+
+    buy_list = []
+    sell_list = []
+
+    buy_sum = 0.0
+    sell_change_sum = 0.0
+    sell_sum = 0.0
+
+    for t, c in zip(ticker_prices, coins):
+        c.input_ticker_price(t)
+
+        try:
+            market = Market.objects.get(user=user, market=c.get_market())
+        except Market.DoesNotExist:
+            market = Market.objects.create(user=user, market=c.get_market(), last_order=timezone.now() - datetime.timedelta(days=7))
+
+        if market.get_last_order() + datetime.timedelta(hours=hour_delay, minutes=minute_delay) > timezone.now():
+            continue
+
+        if config.buy_rate > c.get_change_rate():
+            # print("{} {}% 구매".format(c.get_market(), c.get_change_rate()))
+            if c.get_currency() not in not_alter_list:
+                if krw_price_list[c.get_currency()] <= one_alter_max_value:
+                    buy_list.append(c)
+                    buy_sum = buy_sum + c.get_block_size()
+                else:
+                    continue
+            else:
+                buy_list.append(c)
+                buy_sum = buy_sum + c.get_block_size()
+        elif config.sell_rate < c.get_change_rate() and c.get_block_count() > 0:
+            # print("{} {}% 판매".format(c.get_market(), c.get_change_rate()))
+            # 하드드랍 루틴 때문에 폭등했다가 천천히 떨어지는거에서 손해범.. ㅠㅠ
+            # if c.get_signed_change_rate() < hard_drop:
+            #     buy_list.append(c)
+            #     buy_sum = buy_sum + c.get_block_size()
+            # else:
+            sell_list.append(c)
+            sell_sum = sell_sum + c.get_block_price()
+            sell_change_sum = sell_change_sum + c.get_sell_change_price()
+
+    print("판매 리스트 건수: {}건  구매 리스트 건수: {}건".format(len(sell_list), len(buy_list)))
+
+    # 미구매 항목중에 회수해야할 항목 회수
+    market_codes = requests.request("GET", "https://api.upbit.com/v1/market/all").json()
+    new_coins = []
+    for m in market_codes:
+        if not m['market'] in list(map(lambda x:x.get_market(), coins)) and m['market'].startswith("KRW"):
+            new_coins.append(Coin(m))
+    query={'markets':",".join(list(map(lambda x:x.get_market(), new_coins)))}
+    ticker_prices = make_payload(user, '/v1/ticker', query)
+    
+    for t, c in zip(ticker_prices.json(), new_coins):
+        c.input_ticker_price(t)
+
+        try:
+            market = Market.objects.get(user=user, market=c.get_market())
+        except Market.DoesNotExist:
+            market = Market.objects.create(user=user, market=c.get_market(), last_order=timezone.now() - datetime.timedelta(days=7))
+
+        if market.get_last_order() + datetime.timedelta(hours=hour_delay, minutes=minute_delay) > timezone.now():
+            continue
+
+        if c.get_signed_change_rate() < config.hard_drop or c.gap_with_highest_balance() < -50:
+            buy_list.append(c)
+
+    print("판매 리스트 건수: {}건  구매 리스트 건수: {}건".format(len(sell_list), len(buy_list)))
+
+    buy_list = sorted(buy_list, key=lambda x:x.get_buy_krw_price_with_priority()) 
+    # for b in buy_list:
+    #     print("{} 코인 {}".format(b.get_currency(), b.get_priority()))
+    if len(buy_list) > 7:
+        config.buy_rate = config.buy_rate - 1
+        print("구매 기준 변경: {}%".format(config.buy_rate))
+        config.save()
+    elif len(buy_list) < 1:
+        config.buy_rate = config.buy_rate + 1
+        print("구매 기준 변경: {}%".format(config.buy_rate))
+        config.save()
+ 
+    return {'buy_list':buy_list, 'sell_list':sell_list, 'buy_sum':int(buy_sum), 'sell_change_sum':int(sell_change_sum), 'sell_sum':int(sell_sum), 'krw':krw, 'alter_delay_on_onday_sec':alter_delay_on_onday_sec}
+    
+
+def dryrun(request):
+    config = UpbitConfig.objects.get(user=request.user)
+    accounts_res = make_payload(request.user, '/v1/accounts')
+    hour_delay = 6
+    coins = []
+    total_order_balance = 0.0
+    alter_count = 0
+    krw_price_list = {}
+    for a in accounts_res.json():
+        if a['currency'] not in not_market_list:
+            if a['currency'] not in not_alter_list:
+                alter_count = alter_count + 1
+            coins.append(Coin(a))
+            krw_price_list[a['currency']] = float(a['balance']) * float(a['avg_buy_price'])
+            total_order_balance = total_order_balance + krw_price_list[a['currency']]
+        elif a['currency'] == "KRW":
+            krw = a
+            krw['int_balance'] = int(float(krw['balance']))
+    query={'markets':",".join(list(map(lambda x:x.get_market(), coins)))}
+    ticker_prices = make_payload(request.user, '/v1/ticker', query)
+
+    alter_order_balance = total_order_balance * alter_rate
+    one_alter_max_value = alter_order_balance / alter_count * config.alter_limit_block
+    print("one alter max: " + str(one_alter_max_value) + "원")
 
     buy_list = []
     sell_list = []
@@ -188,14 +349,22 @@ def dryrun(request):
         except Market.DoesNotExist:
             market = Market.objects.create(user=request.user, market=c.get_market(), last_order=timezone.now() - datetime.timedelta(days=7))
 
-        if market.last_order + datetime.timedelta(hours=6) > timezone.now():
+        if market.get_last_order() + datetime.timedelta(hours=hour_delay) > timezone.now():
             continue
 
-        if buy_rate > c.get_change_rate():
+        if config.buy_rate > c.get_change_rate():
             # print("{} {}% 구매".format(c.get_market(), c.get_change_rate()))
-            buy_list.append(c)
-            buy_sum = buy_sum + c.get_block_size()
-        elif sell_rate < c.get_change_rate() and c.get_block_count() > 0:
+            if c.get_currency() not in not_alter_list:
+                if krw_price_list[c.get_currency()] <= one_alter_max_value:
+                    print(krw_price_list[a['currency']])
+                    buy_list.append(c)
+                    buy_sum = buy_sum + c.get_block_size()
+                else:
+                    continue
+            else:
+                buy_list.append(c)
+                buy_sum = buy_sum + c.get_block_size()
+        elif config.sell_rate < c.get_change_rate() and c.get_block_count() > 0:
             # print("{} {}% 판매".format(c.get_market(), c.get_change_rate()))
             sell_list.append(c)
             sell_sum = sell_sum + c.get_block_price()
@@ -204,7 +373,7 @@ def dryrun(request):
     krw['int_require'] = round(int(buy_sum) - int(krw['int_balance']), -3) + 1000
     sell_change_rate = 0
     if sell_sum > 0:
-        sell_change_rate = round(float(sell_change_sum / sell_sum * 100), 2)
+        sell_change_rate = round(float(sell_change_sum) / float(sell_sum) * 100, 2)
 
     buy_list = sorted(buy_list, key=lambda x:x.get_buy_krw_price()) 
 
@@ -224,15 +393,30 @@ class Coin:
     acc_trade_price_24h = 0.0
 
     bigblock = ["BTC"]
+    priority_list = [['BTC'],['ETH']]
+    priority = len(priority_list)
 
     def __init__(self, account):
-        self.currency = account['currency']
+        if 'currency' in account: # 이미 구매된 자산이 입력되는 경우
+            self.currency = account['currency']
+            self.market = "KRW-" + account['currency']
+            self.balance = float(account['balance'])
+            self.avg_buy_price = float(account['avg_buy_price'])
+            block_count = self.avg_buy_price * self.balance / self.blocksize
+            if block_count > 0.5 and int(block_count) == 0:
+                self.blockcount = 1
+            else:
+                self.blockcount = int(self.avg_buy_price * self.balance / self.blocksize)
+        else:
+            self.market = account['market']
+            self.currency = self.market.split("-")[1]
+        for i, p in zip(range(len(self.priority_list)), self.priority_list):
+            if self.currency in p:
+                self.priority = i
         if self.currency in self.bigblock:
             self.blocksize = 11000
-        self.market = "KRW-" + account['currency']
-        self.balance = float(account['balance'])
-        self.avg_buy_price = float(account['avg_buy_price'])
-        self.blockcount = int(self.avg_buy_price * self.balance / self.blocksize)
+        # print("{} block_size:{} block_count:{}".format(self.currency, self.blocksize, self.blocksize))
+        # print("{} block {}".format(self.currency, self.priority))
 
     def get_market(self):
         return self.market
@@ -245,6 +429,15 @@ class Coin:
 
     def get_buy_krw_price(self):
         return int(self.balance * self.avg_buy_price)
+    
+    def get_priority(self):
+        return self.priority
+
+    def get_reverse_priority(self):
+        return len(self.priority_list) - self.priority
+
+    def get_buy_krw_price_with_priority(self):
+        return int(self.balance * self.avg_buy_price) - (self.get_reverse_priority() * 10000000)
 
     def input_ticker_price(self, ticker):
         if self.market != ticker['market']:
@@ -254,6 +447,12 @@ class Coin:
         self.signed_change_rate = ticker['signed_change_rate']
         self.acc_trade_price_24h = ticker['acc_trade_price_24h']
         self.highest_52_week_price = ticker['highest_52_week_price']
+
+    def gap_with_highest_balance(self):
+        mine_change_price = self.trade_price - self.highest_52_week_price
+        mine_change_rate = float(mine_change_price) / float(self.highest_52_week_price)
+        mine_change_percent = round(float(mine_change_rate) * 100, 2)
+        return mine_change_percent
 
     def get_change_rate(self):
         return round((self.trade_price - self.avg_buy_price) / self.avg_buy_price * 100, 2)
@@ -273,6 +472,38 @@ class Coin:
     def get_block_size(self):
         return self.blocksize
 
+    def get_signed_change_rate(self):
+        return self.signed_change_rate * 100
+
+
+def trade_block(user, trade_dict):
+    query = {
+        'market': trade_dict['market'],
+        'side': trade_dict['side'],
+        'ord_type': trade_dict['ord_type'],
+    }
+    if 'volume' in trade_dict:
+        query['volume'] = trade_dict['volume']
+    if 'price' in trade_dict:
+        query['price'] = trade_dict['price']
+
+    res = make_payload(user, '/v1/orders', query, method="POST")
+    res_json = res.json()
+
+    if 'error' not in res_json:
+        try:
+            market = Market.objects.get(user=user, market=trade_dict['market'])
+            market.last_order = timezone.now()
+            market.save()
+        except Market.DoesNotExist:
+            market = Market.objects.create(user=user, market=trade_dict['market'], last_order=timezone.now())
+        order = Order.objects.create(user=user, market=market, created_at=timezone.now(),
+                                        side=trade_dict['side'], uuid=res_json['uuid'])
+        return True
+    else:
+        return res_json
+
+
 
 def sell_block(request):
     if request.method == "POST":
@@ -286,14 +517,15 @@ def sell_block(request):
         if 'price' in request.POST:
             query['price'] = request.POST['price']
 
-        res = make_payload(request, '/v1/orders', query, method="POST")
+        res = make_payload(request.user, '/v1/orders', query, method="POST")
         res_json = res.json()
         # print(res_json)
 
         if 'error' in res_json and res_json['error']['name'] == 'insufficient_funds_bid':
             query = {'amount': request.POST['price']}
-            res = make_payload(request, '/v1/deposits/krw', query, method="POST")
+            res = make_payload(request.user, '/v1/deposits/krw', query, method="POST")
             res_json = res.json()
+            return HttpResponseRedirect(request.META['HTTP_REFERER'])
 
         if 'error' not in res_json:
             try:
@@ -302,8 +534,11 @@ def sell_block(request):
                 market.save()
             except Market.DoesNotExist:
                 market = Market.objects.create(user=request.user, market=request.POST['market'], last_order=timezone.now())
+            order = Order.objects.create(user=request.user, market=market, created_at=timezone.now(),
+                                         side=request.POST['side'], uuid=res_json['uuid'])
 
     return HttpResponseRedirect(request.META['HTTP_REFERER'])
+
 
 def deposit_krw(request):
     if request.method == "POST":
@@ -311,8 +546,72 @@ def deposit_krw(request):
             'amount': request.POST['amount']
         }
 
-        res = make_payload(request, '/v1/deposits/krw', query, method="POST")
+        res = make_payload(request.user, '/v1/deposits/krw', query, method="POST")
         res_json = res.json()
         print(res_json)
 
     return HttpResponseRedirect(request.META['HTTP_REFERER'])
+
+def refresh_data(request):
+    markets = Market.objects.filter(user=request.user, update_date__lte=(timezone.now() - datetime.timedelta(hours=12)))
+    for m in markets:
+        res = make_payload(request.user, '/v1/orders/chance', {'market':m.get_market()})
+        m.set_chance(res.json())
+
+        res = make_payload(request.user, '/v1/orders', {'market':m.get_market(), 'state': 'done'})
+        json = res.json()
+        for j in json:
+            if j['side'] == 'ask' and not j['price']:
+                j['price'] = get_uuid_price(request, j['uuid'])
+                print(j['price'])
+            elif j['side'] == 'bid' and not j['volume']:
+                j['volume'] = j['executed_volume']
+                # order_json = make_payload(request.user, '/v1/order', {'uuid':j['uuid']}).json()
+                # print(order_json)
+
+        m.set_orders(json)
+
+        m.update_date = timezone.now()
+        m.save()
+    return HttpResponseRedirect(request.META['HTTP_REFERER'])
+
+def get_uuid_price(request, uuid):
+    order_json = make_payload(request.user, '/v1/order', {'uuid':uuid}).json()
+    p_sum_volume = 0.0
+    p_sum_price = 0.0
+    for t in order_json['trades']:
+        p_sum_volume = p_sum_volume + float(t['volume'])
+        p_sum_price = p_sum_price + float(t['volume']) * float(t['price'])
+    return p_sum_price / p_sum_volume
+
+def refresh_market(request, market):
+    m = Market.objects.get(user=request.user, market=market)
+    orders = Order.objects.filter(user=request.user, market=m)
+
+    for o in orders:
+        o.delete()
+    
+    res = make_payload(request.user, '/v1/orders/chance', {'market':m.get_market()})
+    m.set_chance(res.json())
+
+    res = make_payload(request.user, '/v1/orders', {'market':m.get_market(), 'state': 'done'})
+    json = res.json()
+    for j in json:
+        if j['side'] == 'ask' and not j['price']:
+            j['price'] = get_uuid_price(request, j['uuid'])
+            print(j['price'])
+        elif j['side'] == 'bid' and not j['volume']:
+            j['volume'] = j['executed_volume']
+            # order_json = make_payload(request.user, '/v1/order', {'uuid':j['uuid']}).json()
+            # print(order_json)
+    m.set_orders(json)
+
+    m.update_date = timezone.now()
+    m.save()
+    return HttpResponseRedirect(request.META['HTTP_REFERER'])
+
+def detail_market(request, market):
+    m = Market.objects.get(user=request.user, market=market)
+    orders = Order.objects.filter(user=request.user, market=m)
+
+    return render(request, 'upbit/detail_market.html', {'market':m, 'orders':orders})

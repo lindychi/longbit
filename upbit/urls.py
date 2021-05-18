@@ -10,4 +10,7 @@ urlpatterns = [
     path('dryrun/', views.dryrun, name='dryrun'),
     path('sell_block/', views.sell_block, name="sell_block"),
     path('deposit_krw/', views.deposit_krw, name="deposit_krw"),
+    path('refresh_data/', views.refresh_data, name="refresh_data"),
+    path('refresh_market/<str:market>/', views.refresh_market, name="refresh_market"),
+    path('detail/<str:market>/', views.detail_market, name='detail_market'),
 ]
