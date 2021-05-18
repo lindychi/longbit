@@ -1,13 +1,9 @@
-<h1>업비트</h1>
+{% extends 'base.html' %}
 
-<a href="{% url 'upbit:index' %}">자산</a></br>
-<a href="{% url 'upbit:dryrun' %}">드라이런</a></br>
-
-<a href="{% url 'upbit:refresh_data' %}">데이터 리프레쉬</a></br>
-
+{% block body %}
 <div>
     <div>
-        <h2>원화: {{ krw_data.krw_price }}원</h2>
+        <h3>원화: {{ krw_data.krw_price }}원</h3>
         <h3>총 주문금: {{ krw_data.total_order_balance }}원</h3>
         <h3>총 입금액: {{ krw_data.total_deposit_balance }}원 ({{ krw_data.total_order_gap }}원 - {{ krw_data.total_order_gap_rate }}%)</h3>
     </div>
@@ -86,3 +82,4 @@
     </tr>    
 {% endfor %}
 </table>
+{% endblock %}

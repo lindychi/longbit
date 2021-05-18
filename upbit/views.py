@@ -615,3 +615,25 @@ def detail_market(request, market):
     orders = Order.objects.filter(user=request.user, market=m)
 
     return render(request, 'upbit/detail_market.html', {'market':m, 'orders':orders})
+
+def deposits(request):
+    deposits = get_currency_list(request)
+
+    date_list = {}
+    for d in deposits:
+        if d['state'] == 'ACCEPTED':
+            date = d['done_at'].split('T')[0]
+            if date in date_list:
+                date_list[date] = date_list[date] + float(d['amount'])
+            else:
+                date_list[date] = float(d['amount'])
+
+    date_list = sorted(date_list.items(), key=lambda item:item[0])
+
+    total_amount = 0.0
+    deposits = []
+    for d in date_list:
+        total_amount = total_amount + d[1]
+        deposits.append({'date':d[0], 'amount':d[1], 'total_amount':total_amount})
+    
+    return render(request, 'upbit/deposits.html', {'deposits':deposits})

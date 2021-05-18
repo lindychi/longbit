@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+
+{% block scripts %}
+<script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+<script type="text/javascript">
+    google.charts.load('current', {'packages':['corechart']});
+    google.charts.setOnLoadCallback(drawChart);
+
+    function drawChart() {
+    var data = google.visualization.arrayToDataTable([
+        {% for d in deposits %}
+        ['{{ d.date }}', {{ d.amount }}, {{ d.total_amount }}],
+        {% endfor %}
+    ]);
+
+    var options = {
+        title: '납입 원화',
+        hAxis: {title: '날짜',  titleTextStyle: {color: '#333'}},
+        vAxis: {minValue: 0}
+    };
+
+    var chart = new google.visualization.AreaChart(document.getElementById('chart_div'));
+    chart.draw(data, options);
+    }
+</script>
+{% endblock %}
+
+{% block body %}
+<div id="chart_div" style="width: 100%; height: 100%;"></div>
+{% endblock %}
