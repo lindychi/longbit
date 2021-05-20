@@ -8,6 +8,7 @@
 
     function drawChart() {
     var data = google.visualization.arrayToDataTable([
+        ['date', '원화', '총액'],
         {% for d in deposits %}
         ['{{ d.date }}', {{ d.amount }}, {{ d.total_amount }}],
         {% endfor %}
