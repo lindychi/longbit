@@ -42,29 +42,29 @@
                     </a>
                 </li>
                 <li>
-                    <a href="#" class="nav-link text-white">
-                    <svg class="bi me-2" width="16" height="16"><use xlink:href="#table"/></svg>
-                    Orders
+                    <a href="{% url 'upbit:orders' %}" class="nav-link text-white">
+                    <svg class="bi me-2" width="16" height="16"><use xlink:href="{% url 'upbit:orders' %}"/></svg>
+                    주문들
                     </a>
                 </li>
                 <li>
-                    <a href="#" class="nav-link text-white">
-                    <svg class="bi me-2" width="16" height="16"><use xlink:href="#grid"/></svg>
-                    Products
+                    <a href="{% url 'upbit:deposits' %}" class="nav-link text-white">
+                    <svg class="bi me-2" width="16" height="16"><use xlink:href="{% url 'upbit:deposits' %}"/></svg>
+                    불입액
                     </a>
                 </li>
-                <li>
+                {% comment %} <li>
                     <a href="#" class="nav-link text-white">
                     <svg class="bi me-2" width="16" height="16"><use xlink:href="#people-circle"/></svg>
                     Customers
                     </a>
-                </li>
+                </li> {% endcomment %}
                 </ul>
                 <hr>
                 <div class="dropdown">
                 <a href="#" class="d-flex align-items-center text-white text-decoration-none dropdown-toggle" id="dropdownUser1" data-bs-toggle="dropdown" aria-expanded="false">
                     <img src="https://github.com/mdo.png" alt="" width="32" height="32" class="rounded-circle me-2">
-                    <strong>mdo</strong>
+                    <strong>{{ request.user }}</strong>
                 </a>
                 <ul class="dropdown-menu dropdown-menu-dark text-small shadow" aria-labelledby="dropdownUser1">
                     <li><a class="dropdown-item" href="#">New project...</a></li>

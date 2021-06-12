@@ -1,0 +1,29 @@
+{% extends 'base.html' %}
+
+{% block scripts %}
+{% endblock %}
+
+{% block body %}
+<table class="table table-hover">
+  <thead>
+    <tr>
+        <th>날짜</th>
+        <th>종목</th>
+        <th>매도수</th>
+        <th>볼륨</th>
+        <th>로우 데이터</th>
+    </tr>
+  </thead>
+  <tbody>
+{% for o in orders %}
+    <tr>
+        <td>{{ o.created_at }}
+        <td>{{ o.market }}</td>
+        <td>{% if o.side == 'ask' %}매도{% else %}매수{% endif %}</td>
+        <td>{% if o.side == 'ask' %}{{ o.volume }} {{ o.get_currency }}{% else %}{{ o.price }} 원{% endif %}</td>
+        <td>{{ o.get_order }}</td>
+    </tr>
+{% endfor %}
+  </tbody>
+</table>
+{% endblock %}
