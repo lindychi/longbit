@@ -8,7 +8,7 @@
         <h3>총 입금액: {{ krw_data.total_deposit_balance }}원 ({{ krw_data.total_order_gap }}원 - {{ krw_data.total_order_gap_rate }}%)</h3>
     </div>
 </div>
-<table>
+<table class="table table-striped">
     <tr>
         <th>
             티커
@@ -31,11 +31,14 @@
         <th>
             블럭 갯수
         </th>
+        <th>갱신</th>
+        <th>매수</th>
+        <th>매도</th>
     </tr>
 {% for r in res %}
     <tr>
         <td>
-            <a href="{% url 'upbit:detail_market' r.market %}">{{ r.korean_name }}({{ r.market }})</a>
+            <a href="{% url 'upbit:detail_market' r.market %}">{{ r.korean_name }}({{ r.market }})</a> {% if r.market_warning == 'CAUTION' %}ㅇㅠㅇㅡㅣ{% else %}{{ r.market_warning }}{% endif %}
         </td>
         <td>
             {{ r.krw_real_price }}원
