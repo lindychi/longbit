@@ -1,5 +1,6 @@
 from django.contrib import admin
-from .models import UpbitConfig, Market
+from .models import Market
+from .model.UpbitConfig import UpbitConfig
 
 # Register your models here.
 admin.site.register(UpbitConfig)

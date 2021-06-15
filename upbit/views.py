@@ -4,7 +4,8 @@ from django.http.response import HttpResponse, HttpResponseRedirect
 from django.utils import timezone
 from django.shortcuts import render
 from django.contrib.auth.decorators import login_required
-from .models import UpbitConfig, Market, Order
+from .models import Market, Order
+from .model.UpbitConfig import UpbitConfig
 
 import jwt
 import uuid
