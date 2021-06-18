@@ -1,0 +1,88 @@
+{% extends 'base.html' %}
+
+{% block body %}
+<div>
+    <div>
+        <h3>원화: {{ krw_data.krw_price }}원</h3>
+        <h3>총 주문금: {{ krw_data.total_order_balance }}원</h3>
+        <h3>총 입금액: {{ krw_data.total_deposit_balance }}원 ({{ krw_data.total_order_gap }}원 - {{ krw_data.total_order_gap_rate }}%)</h3>
+    </div>
+</div>
+<table class="table table-striped">
+    <tr>
+        <th>
+            티커
+        </th>
+        <th>
+            실평가액
+        </th>
+        <th>
+            구매총액
+        </th>
+        <th>
+            평균구매액
+        </th>
+        <th>
+            수익액
+        </th>
+        <th>
+            수익율
+        </th>
+        <th>
+            블럭 갯수
+        </th>
+        <th>갱신</th>
+        <th>매수</th>
+        <th>매도</th>
+    </tr>
+{% for r in markets %}
+    <tr>
+        <td>
+            <a href="{% url 'upbit:detail_market' r.market %}">{{ r.korean_name }}({{ r.market }})</a> {% if r.market_warning == 'CAUTION' %}<strong class="text-danger">유의</strong>{% endif %}
+        </td>
+        <td>
+            {{ r.get_current_balance }} {{ r.get_unit_currency }}
+        </td>
+        <td>
+            {{ r.get_buy_balance }} {{ r.get_unit_currency }}
+        </td>
+        <td>
+            {{ r.avg_buy_price }} {{ r.get_unit_currency }}
+        </td>
+        <td style="{% if r.get_earn_balance > 0 %}color:red;{% else %}color:blue;{% endif %}">
+            {{ r.get_earn_balance }}원
+        </td>
+        <td style="{% if r.get_earn_balance_rate > 0 %}color:red;{% else %}color:blue;{% endif %}">
+            {{ r.get_earn_balance_rate }}%
+        </td>
+        <td>
+            {{ r.get_blockcount }}({{ r.get_bid_min_total }}{{ r.get_unit_currency }})
+        </td>
+        <td>
+            <a href="{% url 'upbit:refresh_market' r.market %}">갱신</a>
+        </td>
+        {% comment %} {% if not r.avg_buy_price %} {% endcomment %}
+        <td>
+            <form action="{% url 'upbit:sell_block' %}" method="POST">
+                {% csrf_token %}
+                <input name="market" type="hidden" value="{{ r.market }}">
+                <input name="price" type="hidden" value="5500">
+                <input name="ord_type" type="hidden" value="price">
+                <input name="side" value="bid" type="hidden">
+                <input type="submit" value="매수">
+            </form>
+        </td>
+        <td>
+            <form action="{% url 'upbit:sell_block' %}" method="POST">
+                {% csrf_token %}
+                <input name="market" type="hidden" value="{{ r.market }}">
+                <input name="volume" type="hidden" value="{{ r.sell_balance }}">
+                <input name="ord_type" type="hidden" value="market">
+                <input name="side" value="ask" type="hidden">
+                <input type="submit" value="매도">
+            </form>
+        </td>
+    </tr>    
+{% endfor %}
+</table>
+{% endblock %}

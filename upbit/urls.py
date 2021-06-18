@@ -14,4 +14,5 @@ urlpatterns = [
     path('refresh_market/<str:market>/', views.refresh_market, name="refresh_market"),
     path('detail/<str:market>/', views.detail_market, name='detail_market'),
     path('deposits/', views.deposits, name='deposits'),
+    path('new_index/', views.new_index, name='new_index'),
 ]
