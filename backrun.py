@@ -8,7 +8,7 @@ django.setup()
 
 from django.contrib.auth import get_user_model
 from upbit.views import dryrun_inner as dryrun, trade_block
-from upbit.models import UpbitConfig
+from upbit.model.UpbitConfig import UpbitConfig
 from django.utils import timezone
 
 User = get_user_model()
