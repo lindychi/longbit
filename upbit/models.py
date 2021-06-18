@@ -105,6 +105,8 @@ class CoinMarket(models.Model):
     signed_change_rate = models.FloatField(default=0.0)
     ticker_update = models.DateTimeField(default=timezone.now())
 
+    change_rate_from_avg = models.FloatField(default=0.0)
+
     # chance data
     bid_min_total = models.FloatField(default=0.0)
 
@@ -150,6 +152,11 @@ class CoinMarket(models.Model):
             unit_currency = "원"
         return unit_currency
 
+    def set_change_rate_from_avg(self):
+        if self.avg_buy_price > 0:
+            self.change_rate_from_avg = (self.trade_price - self.avg_buy_price) / self.avg_buy_price * 100
+            self.save()
+
     def set_ticker(self, ticker):
         self.opening_price = float(ticker['opening_price'])
         self.trade_price = float(ticker['trade_price'])
@@ -158,6 +165,7 @@ class CoinMarket(models.Model):
         self.signed_change_price = float(ticker['signed_change_price'])
         self.signed_change_rate = float(ticker['signed_change_rate'])
         self.ticker_update = timezone.now()
+        self.set_change_rate_from_avg()
         self.save()
 
     def set_chance(self, chance):
@@ -179,3 +187,6 @@ class CoinMarket(models.Model):
 
     def get_json(self):
         return {'int_balance':self.balance}
+
+    def get_block_size(self):
+        return self.bid_min_total * 1.1

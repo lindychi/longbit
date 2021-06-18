@@ -27,7 +27,7 @@ while True:
 
     for s in dryrun_dict['sell_list']:
         if s.get_change_rate() > 0:
-        res = trade_block(user, {'market':s.get_market(), 'volume':s.get_sell_balance(), 'ord_type':'market', 'side':'ask'})
+            res = trade_block(user, {'market':s.get_market(), 'volume':s.get_sell_balance(), 'ord_type':'market', 'side':'ask'})
         else:
             pass 
 
