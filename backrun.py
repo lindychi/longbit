@@ -20,26 +20,30 @@ while True:
     print(timezone.now() + datetime.timedelta(hours=9))
     time.sleep(1)
     dryrun_dict = dryrun(user)
-    if dryrun_dict is False:
-        continue
-    if len(dryrun_dict['buy_list']) < 1 or len(dryrun_dict['buy_list']) > 7:
-        continue
+    # if dryrun_dict is False:
+    #     continue
+    # if len(dryrun_dict['buy_list']) < 1 or len(dryrun_dict['buy_list']) > 7:
+    #     continue
 
     for s in dryrun_dict['sell_list']:
+        if s.get_change_rate() > 0:
         res = trade_block(user, {'market':s.get_market(), 'volume':s.get_sell_balance(), 'ord_type':'market', 'side':'ask'})
+        else:
+            pass 
+
         if res is True:
             print("{} 판매 완료 volume:{}{}".format(s.get_market(), s.get_sell_balance(), s.get_currency()))
         else:
             print(res)
         time.sleep(0.5)
 
-    time.sleep(1)
-    dryrun_dict = dryrun(user)
-    if dryrun_dict is False:
-        time.sleep(600)
-        continue
+    # time.sleep(1)
+    # dryrun_dict = dryrun(user)
+    # if dryrun_dict is False:
+    #     time.sleep(600)
+    #     continue
 
-    print("주문 가능 금액: {}원".format(dryrun_dict['krw']['int_balance']))
+    # print("주문 가능 금액: {}원".format(dryrun_dict['krw']['int_balance']))
     for b in dryrun_dict['buy_list']:
         res = trade_block(user, {'market':b.get_market(), 'price':b.get_block_size(), 'ord_type':'price', 'side':'bid'})
         if res is True:
@@ -49,6 +53,7 @@ while True:
             if res['error']['name'] == 'insufficient_funds_bid':
                 break
         time.sleep(0.5)
-    cycle_delay_sec = int(dryrun_dict['alter_delay_on_onday_sec'] * 600 / 18000 * 10)
-    print("회차 대기 시간: {}초({}분 {}초)".format(cycle_delay_sec, int(cycle_delay_sec/60), (cycle_delay_sec%60)))
-    time.sleep(cycle_delay_sec)
+    # cycle_delay_sec = int(dryrun_dict['alter_delay_on_onday_sec'] * 600 / 18000 * 10)
+    # print("회차 대기 시간: {}초({}분 {}초)".format(cycle_delay_sec, int(cycle_delay_sec/60), (cycle_delay_sec%60)))
+    # time.sleep(cycle_delay_sec)
+    time.sleep(1800)
