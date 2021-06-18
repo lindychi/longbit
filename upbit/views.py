@@ -4,8 +4,9 @@ from django.http.response import HttpResponse, HttpResponseRedirect
 from django.utils import timezone
 from django.shortcuts import render
 from django.contrib.auth.decorators import login_required
-from .models import Market, Order
+from .models import Market, Order, CoinMarket
 from .model.UpbitConfig import UpbitConfig
+from .api.upbit import make_payload
 
 import jwt
 import uuid
@@ -15,32 +16,7 @@ import requests
 import json
 import datetime
 import time
-
-def make_payload(user, url, query={}, method="GET"):
-    config = UpbitConfig.objects.get(user=user)
-    payload = {
-        'access_key': config.access_key,
-        'nonce': str(uuid.uuid4())
-    }
-
-    query_string = ""
-    if query:
-        query_string = urlencode(query).encode()
-
-        m = hashlib.sha512()
-        m.update(query_string)
-        query_hash = m.hexdigest()
-        payload['query_hash'] = query_hash
-        payload['query_hash_alg'] = 'SHA512'
-
-    jwt_token = jwt.encode(payload, config.secret_key)
-    authorize_token = 'Bearer {}'.format(jwt_token)
-    headers = {"Authorization": authorize_token}
-
-    if method == "GET":
-        return requests.get('https://api.upbit.com{}'.format(url), params=query_string, headers=headers)
-    else:
-        return requests.post('https://api.upbit.com{}'.format(url), params=query, headers=headers)
+import math
 
 def get_currency_list(request, currency='KRW'):
     total_res = []
@@ -53,24 +29,39 @@ def get_currency_list(request, currency='KRW'):
         page = page + 1
     return total_res
 
+def get_order_list(request):
+    total_res = []
+    page = 1
+    while True:
+        res = make_payload(request.user, '/v1/orders', {'state':'done', 'page':page})
+        total_res.extend(res.json())
+        if len(res.json()) < 100:
+            break
+        page = page + 1
+    total_res = sorted(total_res, key=lambda x:x['created_at'], reverse=True)
+    return total_res
+
 # Create your views here.
 @login_required
 def index(request):
     accounts_res = make_payload(request.user, '/v1/accounts')
-    json_data = accounts_res.json()
+    account_json_data = accounts_res.json()
 
-    market_codes = requests.request("GET", "https://api.upbit.com/v1/market/all")
+    market_codes = make_payload(request.user, "/v1/market/all", query={"isDetails":"true"})
     market_names = {}
+    coins = []
     for m in market_codes.json():
         if m['market'].startswith("KRW-"):
             market_names[m['market']] = m
-            # market_names[m['market'][4:]] = m
+            coins.append(Coin(market=m))
+        else:
+            pass # 이후에 coinsㅇㅔ ㅊㅜㄱㅏㅎㅏㄹ ㅅㅜ ㅇㅣㅆㄸㅏ
             
     krw_data = {}
     krw_price_data = []
     total_order_balance = 0.0
     account_names = []
-    for r in json_data:
+    for r in account_json_data:
         if 'KRW-'+r['currency'] in market_names:
             r['korean_name'] = market_names['KRW-'+r['currency']]['korean_name']
             r['market'] = market_names['KRW-'+r['currency']]['market']
@@ -161,15 +152,19 @@ def index(request):
         else:
             print("{} != {}".format(t['market'], 'KRW-'+k['currency']))
 
-    json_data = sorted(krw_price_data, key=lambda x:float(x['krw_real_price']), reverse=True)
+    account_json_data = sorted(krw_price_data, key=lambda x:float(x['krw_real_price']), reverse=True)
 
     zero_data_index = 0
-    for i, d in zip(range(len(json_data)), json_data):
-        if 'avg_buy_price' not in d:
-            zero_data_index = i
+    for d in account_json_data:
+        if 'avg_buy_price' in d and float(d['avg_buy_price']) > 0:
+            print("{} {}".format(zero_data_index, d['avg_buy_price']))
+        else:
             break
+        zero_data_index = zero_data_index + 1
 
-    for j in json_data[zero_data_index:]:
+    print('zero data index: {}'.format(zero_data_index))
+    # print(account_json_data[zero_data_index:])
+    for j in account_json_data[zero_data_index:]:
         try:
             market = Market.objects.get(user=request.user, market=j['market'])
             j['avg_buy_price'] = market.get_avg_buy_price()
@@ -180,7 +175,10 @@ def index(request):
         except Market.DoesNotExist:
             market = Market.objects.create(user=request.user, market=j['market'], last_order=timezone.now() - datetime.timedelta(days=7), update_date=timezone.now() - datetime.timedelta(days=7))
 
-    json_data = json_data[0:zero_data_index] + sorted(json_data[zero_data_index:], key=lambda x:float(x['acc_trade_price_24h']), reverse=True)
+    account_json_data = account_json_data[0:zero_data_index] + sorted(account_json_data[zero_data_index:], key=lambda x:float(x['acc_trade_price_24h']), reverse=True)
+    
+    return render(request, 'upbit/index.html', {'krw_data':krw_data, 'res':account_json_data, 'market_codes':market_names})
+
     
     return render(request, 'upbit/index.html', {'krw_data':krw_data, 'res':json_data, 'market_codes':market_names})
 
@@ -271,7 +269,7 @@ def dryrun_inner(user):
     print("판매 리스트 건수: {}건  구매 리스트 건수: {}건".format(len(sell_list), len(buy_list)))
 
     # 미구매 항목중에 회수해야할 항목 회수
-    market_codes = requests.request("GET", "https://api.upbit.com/v1/market/all").json()
+    market_codes = make_payload(user, "/v1/market/all", query={"isDetails":"true"}).json()
     new_coins = []
     for m in market_codes:
         if not m['market'] in list(map(lambda x:x.get_market(), coins)) and m['market'].startswith("KRW"):
