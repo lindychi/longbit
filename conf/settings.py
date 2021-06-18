@@ -26,7 +26,7 @@ SECRET_KEY = 'h$)!snqwwnxr*ymdmjlrqm+a-8889=+$mi52bk573j6g7m5+@^'
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['lindychi.iptime.org']
+ALLOWED_HOSTS = ['lindychi.iptime.org', '127.0.0.1']
 
 
 # Application definition
