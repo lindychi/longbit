@@ -180,7 +180,73 @@ def index(request):
     return render(request, 'upbit/index.html', {'krw_data':krw_data, 'res':account_json_data, 'market_codes':market_names})
 
     
-    return render(request, 'upbit/index.html', {'krw_data':krw_data, 'res':json_data, 'market_codes':market_names})
+def total_market_listup(request):
+    all_market = make_payload(request.user, "/v1/market/all", query={"isDetails":"true"}).json()
+    for m in all_market:
+        try:
+            coin_market = CoinMarket.objects.get(user=request.user, market=m['market'])
+            coin_market.set_market_warning(m['market_warning'])
+        except CoinMarket.DoesNotExist:
+            coin_market = CoinMarket.objects.create(user=request.user, market=m['market'], korean_name=m['korean_name'], english_name=m['english_name'], market_warning=m['market_warning'])
+
+
+def all_accounts_update(request):
+    accounts = make_payload(request.user, '/v1/accounts').json()
+    for a in accounts:
+        market_name = "{}-{}".format(a['unit_currency'], a['currency'])
+        try:
+            coin_market = CoinMarket.objects.get(user=request.user, market=market_name)
+        except CoinMarket.DoesNotExist:
+            if market_name == "KRW-KRW":
+                coin_market = CoinMarket.objects.create(user=request.user, market=market_name, korean_name="원화", english_name="korean_won", market_warning="NONE")
+            else:
+                print("no market {}".format(market_name))
+            continue
+        coin_market.set_account_json(a)
+
+def order_chance_update(request):
+    total_markets = CoinMarket.objects.filter(user=request.user, bid_min_total=0).exclude(market="KRW-KRW")
+    for m in total_markets:
+        print("chance call {}".format(m.get_market()))
+        chance = make_payload(request.user, '/v1/orders/chance', {'market':m.get_market()}).json()
+        m.set_chance(chance)
+
+@login_required
+def new_index(request):
+    # 전체 마켓 리스트를 리스트업한다.
+    total_market_listup(request)
+
+    # 계정이 소유하고있는 코인들의 데이터를 업데이트한다.
+    all_accounts_update(request)
+
+    # 마켓 찬스 업데이트
+    order_chance_update(request)
+
+    total_markets = CoinMarket.objects.filter(user=request.user, ticker_update__lt=(timezone.now() - datetime.timedelta(minutes=10))) | CoinMarket.objects.filter(user=request.user, trade_price__lte=0)
+    query = {'markets':",".join(list(map(lambda x:x.get_market(), total_markets)))}
+    ticker_prices = make_payload(request.user, '/v1/ticker', query).json()
+    if 'error' not in ticker_prices:
+        for t in ticker_prices:
+            coin_market = CoinMarket.objects.get(user=request.user, market=t['market'])
+            coin_market.set_ticker(t)
+    else:
+        for m in total_markets:
+            print(m.get_market())
+            query = {'markets':m.get_market()}
+            t = make_payload(request.user, '/v1/ticker', query).json()
+            if 'error' in t:
+                print("{} {}".format(m.get_market(), t['error']))
+                if t['error']['message'] == 'Code not found' and m.get_market() != "KRW-KRW":
+                    print("{} coin delete.".format(m.get_market()))
+                    m.delete()
+            else:
+                m.set_ticker(t[0])
+
+    # krw_coin = CoinMarket.objects.get(user=request.user, market="KRW-KRW")
+    # krw = krw_coin.get_json()
+    markets = CoinMarket.objects.filter(user=request.user).order_by('priority', '-buy_balance')
+    return render(request, 'upbit/new_index.html', {'markets':markets})
+
 
 not_market_list = ["KRW", "VTHO"]
 alter_rate = 1
