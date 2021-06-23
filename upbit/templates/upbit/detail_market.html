@@ -6,11 +6,12 @@
 <a href="{% url 'upbit:refresh_data' %}">데이터 리프레쉬</a></br>
 
 <h2>{{ market.market }}</h2>
+<h3>평균 구매가: {{ market.get_avg_price }}</h3>
 <a href="{% url 'upbit:refresh_market' market.market %}">마켓 데이터 초기화</a>
 <table>
 {% for o in orders %}
     <tr>
-        <td>{{ o.created_at }}</td>
+        <td>{{ o.get_created_at }}</td>
         <td>{% if o.side == "bid" %}매수{% else %}매도{% endif %}</td>
         <td>{{ o.price }}</td>
         <td>{{ o.volume }}</td>

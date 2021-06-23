@@ -31,7 +31,7 @@
         <th>
             블럭 갯수
         </th>
-        <th>갱신</th>
+        <th>오프닝 기준 상승율</th>
         <th>매수</th>
         <th>매도</th>
     </tr>
@@ -59,7 +59,7 @@
             {{ r.get_blockcount }}({{ r.get_bid_min_total }}{{ r.get_unit_currency }})
         </td>
         <td>
-            <a href="{% url 'upbit:refresh_market' r.market %}">갱신</a>
+            {{ r.get_signed_change_rate }}%
         </td>
         {% comment %} {% if not r.avg_buy_price %} {% endcomment %}
         <td>
