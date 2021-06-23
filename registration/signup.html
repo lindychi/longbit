@@ -1,0 +1,35 @@
+{% extends "base_generic.html" %}
+{% load static %}
+
+{% block head %}
+<link href="{% static 'upbit/css/signin.css' %}" rel="stylesheet">
+{% endblock %}
+
+{% block content %}
+
+{# Assumes you setup the password_reset view in your URLconf #}
+
+<form class="form-signin" method="post" action="{% url 'signup' %}">
+    <h1>회원가입</h1>
+  {% csrf_token %}
+  {% comment %} <img class="mb-4" src="{% static 'upbit/bitcoin.png' %}" alt="">
+  
+  <input type="text" id="id_username" class="form-control" name="username" placeholder="아이디" required autofocus>
+  <input type="password" id="id_password" class="form-control" name="password" placeholder="비밀번호" required> {% endcomment %}
+  {{ form.as_p }}
+  {% comment %} <div class="checkbox mb-3">
+    <label>
+      <input type="checkbox" value="remember-me"> 
+    </label>
+  </div> {% endcomment %}
+  {% if form.errors %}
+    <p>Your username and password didn't match. Please try again.</p>
+  {% endif %}
+  <button class="btn btn-lg btn-primary btn-block" type="submit">회원가입</button>
+  <input type="hidden" name="next" value="{{ next }}" />
+{% comment %} <p><a href="{% url 'password_reset' %}">Lost password?</a></p> {% endcomment %}
+  {% comment %} <p class="mt-5 mb-3 text-muted">&copy; 2017-2018</p> {% endcomment %}
+</form>
+
+
+{% endblock %}

@@ -15,9 +15,11 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
+from upbit import views as upbit_views
 
 urlpatterns = [
     path('accounts/', include('django.contrib.auth.urls')),
+    path('accounts/signup/', upbit_views.SignupView.as_view(), name='signup'),
     path('admin/', admin.site.urls),
     path('upbit/', include('upbit.urls')),
 ]
