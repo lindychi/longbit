@@ -125,6 +125,6 @@ STATIC_ROOT = os.path.join(BASE_DIR, 'static')
 LOGIN_URL = '/accounts/login/'
 
 LOGIN_REDIRECT_URL = '/upbit'
-LOGOUT_REDIRECT_URL = None
+LOGOUT_REDIRECT_URL = '/upbit'
 
 AUTH_USER_MODEL = 'auth.User'
