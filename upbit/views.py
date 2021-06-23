@@ -232,8 +232,35 @@ def ticker_data_update(user):
             else:
                 m.set_ticker(t[0])
 
+def get_or_result(origin_objects, new_objects):
+    if origin_objects:
+        print("origin_objects {} {}".format(origin_objects, len(origin_objects)))
+    else:
+        print("origin_objects None None")
+    print("new_objects {} {}".format(new_objects, len(new_objects)))
+    return_objects = None
+    if origin_objects:
+        return_objects = origin_objects | new_objects
+    else:
+        return_objects = new_objects
+    return return_objects
+
+def get_coin_without_unuse(config, markets):
+    return_markets = None
+    print("krw {} usdt {} btc {}".format(config.krw_market, config.usdt_market, config.btc_market))
+    if config.krw_market:
+        return_markets = get_or_result(return_markets, markets.filter(market__startswith='KRW'))
+    if config.usdt_market:
+        return_markets = get_or_result(return_markets, markets.filter(market__startswith='USDT'))
+    if config.btc_market:
+        return_markets = get_or_result(return_markets, markets.filter(market__startswith='BTC'))
+    return return_markets
+
+
 @login_required
 def new_index(request):
+    config = UpbitConfig.objects.get(user=request.user)
+
     # 전체 마켓 리스트를 리스트업한다.
     total_market_listup(request.user)
 
@@ -248,7 +275,10 @@ def new_index(request):
 
     # krw_coin = CoinMarket.objects.get(user=request.user, market="KRW-KRW")
     # krw = krw_coin.get_json()
-    markets = CoinMarket.objects.filter(user=request.user).order_by('priority', '-buy_balance')
+
+    markets = get_coin_without_unuse(config, CoinMarket.objects.filter(user=request.user))
+    markets = markets.order_by('priority', '-buy_balance')
+
     return render(request, 'upbit/new_index.html', {'markets':markets})
 
 

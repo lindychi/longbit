@@ -11,6 +11,9 @@ class UpbitConfig(models.Model):
     alter_limit_block = models.FloatField(default=2)
     hard_drop = models.FloatField(default=-3)
     new_buy_rate = models.FloatField(default=-50)
+    krw_market = models.BooleanField(default=True)
+    btc_market = models.BooleanField(default=False)
+    usdt_market = models.BooleanField(default=False)
 
     def __str__(self):
         return "{} - {}".format(self.user, self.access_key)
