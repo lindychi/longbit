@@ -181,7 +181,10 @@ def index(request):
 
     
 def total_market_listup(user):
-    all_market = make_payload(user, "/v1/market/all", query={"isDetails":"true"}).json()
+    all_market = make_payload(user, "/v1/market/all", query={"isDetails":"true"})
+    if 'error' in all_market:
+        return all_market
+
     for m in all_market:
         try:
             coin_market = CoinMarket.objects.get(user=user, market=m['market'])
@@ -189,9 +192,17 @@ def total_market_listup(user):
         except CoinMarket.DoesNotExist:
             coin_market = CoinMarket.objects.create(user=user, market=m['market'], korean_name=m['korean_name'], english_name=m['english_name'], market_warning=m['market_warning'])
 
+def all_accounts_reset(user):
+    coin_markets = CoinMarket.objects.filter(user=user)
+    for c in coin_markets:
+        c.reset_account()
 
 def all_accounts_update(user):
-    accounts = make_payload(user, '/v1/accounts').json()
+    all_accounts_reset(user)
+    accounts = make_payload(user, '/v1/accounts')
+    if 'error' in accounts:
+        return accounts
+
     for a in accounts:
         market_name = "{}-{}".format(a['unit_currency'], a['currency'])
         try:
@@ -206,15 +217,18 @@ def all_accounts_update(user):
 
 def order_chance_update(request):
     total_markets = CoinMarket.objects.filter(user=request.user, bid_min_total=0).exclude(market="KRW-KRW")
+
     for m in total_markets:
         print("chance call {}".format(m.get_market()))
-        chance = make_payload(request.user, '/v1/orders/chance', {'market':m.get_market()}).json()
+        chance = make_payload(request.user, '/v1/orders/chance', {'market':m.get_market()})
+        if 'error' in chance:
+            continue
         m.set_chance(chance)
 
 def ticker_data_update(user):
     total_markets = CoinMarket.objects.filter(user=user, ticker_update__lt=(timezone.now() - datetime.timedelta(minutes=10))) | CoinMarket.objects.filter(user=user, trade_price__lte=0)
     query = {'markets':",".join(list(map(lambda x:x.get_market(), total_markets)))}
-    ticker_prices = make_payload(user, '/v1/ticker', query).json()
+    ticker_prices = make_payload(user, '/v1/ticker', query)
     if 'error' not in ticker_prices:
         for t in ticker_prices:
             coin_market = CoinMarket.objects.get(user=user, market=t['market'])
@@ -223,7 +237,7 @@ def ticker_data_update(user):
         for m in total_markets:
             print(m.get_market())
             query = {'markets':m.get_market()}
-            t = make_payload(user, '/v1/ticker', query).json()
+            t = make_payload(user, '/v1/ticker', query)
             if 'error' in t:
                 print("{} {}".format(m.get_market(), t['error']))
                 if t['error']['message'] == 'Code not found' and m.get_market() != "KRW-KRW":
@@ -259,7 +273,10 @@ def get_coin_without_unuse(config, markets):
 
 @login_required
 def new_index(request):
+    try:
     config = UpbitConfig.objects.get(user=request.user)
+    except UpbitConfig.DoesNotExist:
+        config = UpbitConfig.objects.create(user=request.user)
 
     # 전체 마켓 리스트를 리스트업한다.
     total_market_listup(request.user)
@@ -288,6 +305,7 @@ not_alter_list = ['BTC', 'ETH']
 
 def dryrun_inner(user):
     config = UpbitConfig.objects.get(user=user)
+    all_accounts_update(user)
     total_market_listup(user)
     while True:
     try:
@@ -527,8 +545,7 @@ def trade_block(user, trade_dict):
     if 'price' in trade_dict:
         query['price'] = trade_dict['price']
 
-    res = make_payload(user, '/v1/orders', query, method="POST")
-    res_json = res.json()
+    res_json = make_payload(user, '/v1/orders', query, method="POST")
 
     if 'error' not in res_json:
         try:
@@ -576,6 +593,8 @@ def sell_block(request):
                 market = Market.objects.create(user=request.user, market=request.POST['market'], last_order=timezone.now())
             order = Order.objects.create(user=request.user, market=market, created_at=timezone.now(),
                                          side=request.POST['side'], uuid=res_json['uuid'])
+        else:
+            print(res_json)
 
     return HttpResponseRedirect(request.META['HTTP_REFERER'])
 
@@ -594,6 +613,9 @@ def deposit_krw(request):
 
 def refresh_data(request):
     markets = Market.objects.filter(user=request.user, update_date__lte=(timezone.now() - datetime.timedelta(hours=12)))
+    if 'error' in markets:
+        return markets
+
     for m in markets:
         res = make_payload(request.user, '/v1/orders/chance', {'market':m.get_market()})
         m.set_chance(res.json())
@@ -677,3 +699,7 @@ def deposits(request):
         deposits.append({'date':d[0], 'amount':d[1], 'total_amount':total_amount})
     
     return render(request, 'upbit/deposits.html', {'deposits':deposits})
+class SignupView(generic.edit.CreateView):
+    template_name = 'registration/signup.html'
+    form_class = SignupForm
+    success_url = reverse_lazy('upbit:index')
