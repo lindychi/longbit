@@ -5,9 +5,17 @@ from urllib.parse import urlencode
 import hashlib
 import jwt
 import requests
+import json
 
 def make_payload(user, url, query={}, method="GET"):
-    config = UpbitConfig.objects.get(user=user)
+    try:
+        config = UpbitConfig.objects.get(user=user)
+    except UpbitConfig.DoesNotExist:
+        config = UpbitConfig.objects.create(user=user)
+
+    if not config.access_key:
+        return {'error':{'message':'액세스키가 미등록 상태입니다.'}}
+    
     payload = {
         'access_key': config.access_key,
         'nonce': str(uuid.uuid4())
@@ -28,6 +36,6 @@ def make_payload(user, url, query={}, method="GET"):
     headers = {"Authorization": authorize_token}
 
     if method == "GET":
-        return requests.get('https://api.upbit.com{}'.format(url), params=query_string, headers=headers)
+        return requests.get('https://api.upbit.com{}'.format(url), params=query_string, headers=headers).json()
     else:
-        return requests.post('https://api.upbit.com{}'.format(url), params=query, headers=headers)
+        return requests.post('https://api.upbit.com{}'.format(url), params=query, headers=headers).json()
