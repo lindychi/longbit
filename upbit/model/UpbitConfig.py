@@ -9,14 +9,21 @@ class UpbitConfig(models.Model):
     sell_rate = models.FloatField(default=7)
     buy_rate = models.FloatField(default=-3)
     alter_limit_block = models.FloatField(default=2)
-    hard_drop = models.FloatField(default=-3)
+    hard_drop = models.FloatField(default=20)
     new_buy_rate = models.FloatField(default=-50)
     krw_market = models.BooleanField(default=True)
     btc_market = models.BooleanField(default=False)
     usdt_market = models.BooleanField(default=False)
+    unit_count = models.IntegerField(default=1)
 
     def __str__(self):
         return "{} - {}".format(self.user, self.access_key)
 
     # def get_absolute_url(self):
     #     return reverse("_detail", kwargs={"pk": self.pk})
+
+    def get_positive_harddrop(self):
+        return abs(self.hard_drop)
+
+    def get_negative_harddrop(self):
+        return abs(self.hard_drop) * -1

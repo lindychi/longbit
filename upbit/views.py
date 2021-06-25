@@ -215,18 +215,22 @@ def all_accounts_update(user):
             continue
         coin_market.set_account_json(a)
 
-def order_chance_update(request):
-    total_markets = CoinMarket.objects.filter(user=request.user, bid_min_total=0).exclude(market="KRW-KRW")
+def order_chance_update(user, config=None):
+    total_markets = CoinMarket.objects.filter(user=user, bid_min_total=0).exclude(market="KRW-KRW")
+    if config:
+        total_markets = get_coin_without_unuse(config, total_markets)
 
     for m in total_markets:
         print("chance call {}".format(m.get_market()))
-        chance = make_payload(request.user, '/v1/orders/chance', {'market':m.get_market()})
+        chance = make_payload(user, '/v1/orders/chance', {'market':m.get_market()})
         if 'error' in chance:
             continue
         m.set_chance(chance)
 
-def ticker_data_update(user):
-    total_markets = CoinMarket.objects.filter(user=user, ticker_update__lt=(timezone.now() - datetime.timedelta(minutes=10))) | CoinMarket.objects.filter(user=user, trade_price__lte=0)
+def ticker_data_update(user, config=None):
+    total_markets = CoinMarket.objects.filter(user=user, ticker_update__lt=(timezone.now() - datetime.timedelta(minutes=30))) | CoinMarket.objects.filter(user=user, trade_price__lte=0)
+    if config:
+        total_markets = get_coin_without_unuse(config, total_markets)
     query = {'markets':",".join(list(map(lambda x:x.get_market(), total_markets)))}
     ticker_prices = make_payload(user, '/v1/ticker', query)
     if 'error' not in ticker_prices:
@@ -279,37 +283,45 @@ def new_index(request):
         config = UpbitConfig.objects.create(user=request.user)
 
     # 전체 마켓 리스트를 리스트업한다.
-    total_market_listup(request.user)
+    # total_market_listup(request.user)
 
     # 계정이 소유하고있는 코인들의 데이터를 업데이트한다.
-    all_accounts_update(request.user)
+    # all_accounts_update(request.user)
 
     # 마켓 찬스 업데이트
-    order_chance_update(request) 
+    # order_chance_update(request.user, config) 
 
     # 티커 데이터 업데이트
-    ticker_data_update(request.user)
+    # ticker_data_update(request.user, config)
 
     # krw_coin = CoinMarket.objects.get(user=request.user, market="KRW-KRW")
     # krw = krw_coin.get_json()
 
     markets = get_coin_without_unuse(config, CoinMarket.objects.filter(user=request.user))
+    if config:
     markets = markets.order_by('priority', '-buy_balance')
+    context['markets'] = markets
 
-    return render(request, 'upbit/new_index.html', {'markets':markets})
+
+    return render(request, 'upbit/new_index.html', context)
 
 
 not_market_list = ["KRW", "VTHO"]
 alter_rate = 1
 not_alter_list = ['BTC', 'ETH']
 
+def print_market_list(list_name, list):
+    for m in list:
+        print("{} {} {}% {}%".format(list_name, m.get_market(), m.change_rate_from_avg, m.get_signed_change_rate()))
+
 def dryrun_inner(user):
     config = UpbitConfig.objects.get(user=user)
-    all_accounts_update(user)
     total_market_listup(user)
+    all_accounts_update(user)
+    order_chance_update(user, config) 
     while True:
     try:
-            ticker_data_update(user)
+            ticker_data_update(user, config)
             break
     except json.decoder.JSONDecodeError:
             time.sleep(1)
@@ -329,18 +341,25 @@ def dryrun_inner(user):
     print("하루 내 알터코인 딜레이: {}   {}시 {}분".format(alter_delay_on_oneday, hour_delay, minute_delay))
     alter_delay_on_onday_sec = hour_delay * 3600 + minute_delay * 60
 
-    coin_markets = CoinMarket.objects.filter(user=user)
+    coin_markets = CoinMarket.objects.filter(user=user, last_trade__lt=(timezone.now() - datetime.timedelta(hours=1))).exclude(market="KRW-KRW")
+    if config:
+        coin_markets = get_coin_without_unuse(config, coin_markets)
     buy_list = coin_markets.filter(market_warning='NONE')
-    buy_list = buy_list.filter(change_rate_from_avg__lt=config.buy_rate) | buy_list.filter(signed_change_rate__lt=abs(config.hard_drop) * -1)
-    buy_list = buy_list.order_by('priority', '-change_rate_from_avg', '-signed_change_rate')
-    sell_list = coin_markets.filter(change_rate_from_avg=0)
-    sell_list = sell_list.filter(change_rate_from_avg__gt=config.sell_rate) | sell_list.filter(signed_change_rate__gt=abs(config.hard_drop))
-    sell_list = sell_list.order_by('priority', 'change_rate_from_avg', 'signed_change_rate')
+    buy_rate_list = buy_list.filter(change_rate_from_avg__lt=config.buy_rate).order_by('priority', 'change_rate_from_avg')
+    buy_drop_list = buy_list.filter(signed_change_rate__lt=(config.get_negative_harddrop() / 100)).order_by('priority', 'signed_change_rate')
+    print_market_list("buy_rate_market", buy_rate_list)
+    print_market_list("buy_drop_market", buy_drop_list)
+    buy_list = (buy_rate_list[:3]+buy_drop_list[:3])
+    
+    sell_list = coin_markets.filter(balance__gt=0)
+    sell_rate_list = sell_list.filter(change_rate_from_avg__gt=config.sell_rate).order_by('priority', '-change_rate_from_avg')
+    sell_drop_list = sell_list.filter(signed_change_rate__gt=(config.get_positive_harddrop() / 100)).order_by('priority', '-signed_change_rate')
+    print_market_list("sell_rate_market", sell_rate_list)
+    print_market_list("sell_drop_market", sell_drop_list)
+    sell_list = (sell_rate_list[:3]+sell_drop_list[:3])
 
-    for m in buy_list:
-        print("buy market {} {}% {}%".format(m.get_market(), m.change_rate_from_avg, m.signed_change_rate))
-    for m in sell_list:
-        print("sell market {} {}% {}%".format(m.get_market(), m.change_rate_from_avg, m.signed_change_rate))
+    print_market_list("buy_market", buy_list)
+    print_market_list("sell_market", sell_list)
 
     print("판매 리스트 건수: {}건  구매 리스트 건수: {}건".format(len(sell_list), len(buy_list)))
 
