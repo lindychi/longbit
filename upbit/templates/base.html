@@ -12,6 +12,7 @@
 
         {% block scripts %}{% endblock %}
         <title>{% block title %}{% endblock %}</title>
+        <link rel="shortcut icon" href="{% static 'upbit/bitcoin.ico' %}" type="image/x-icon">
     </head>
 
     <body>
@@ -53,6 +54,11 @@
                     불입액
                     </a>
                 </li>
+                {% comment %} <li>
+                    <a href="{% url 'upbit:config' %}" class="nav-link text-white">
+                    설정
+                    </a>
+                </li> {% endcomment %}
                 <li>
                     <a href="{% url 'logout' %}" class="nav-link text-white">
                     로그아웃

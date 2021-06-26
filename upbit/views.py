@@ -275,12 +275,12 @@ def get_coin_without_unuse(config, markets):
     return return_markets
 
 
-@login_required
-def new_index(request):
+def get_index_context(request, user):
+    context = {}
     try:
-    config = UpbitConfig.objects.get(user=request.user)
+        config = UpbitConfig.objects.get(user=user)
     except UpbitConfig.DoesNotExist:
-        config = UpbitConfig.objects.create(user=request.user)
+        config = UpbitConfig.objects.create(user=user)
 
     # 전체 마켓 리스트를 리스트업한다.
     # total_market_listup(request.user)
@@ -297,21 +297,43 @@ def new_index(request):
     # krw_coin = CoinMarket.objects.get(user=request.user, market="KRW-KRW")
     # krw = krw_coin.get_json()
 
-    markets = get_coin_without_unuse(config, CoinMarket.objects.filter(user=request.user))
+    markets = get_coin_without_unuse(config, CoinMarket.objects.filter(user=user))
     if config:
     markets = markets.order_by('priority', '-buy_balance')
+    context['config'] = config
     context['markets'] = markets
 
+    try:
+        krw_market = CoinMarket.objects.get(user=user, market="KRW-KRW")
+        context['krw_data'] = krw_market.get_json()
+    except CoinMarket.DoesNotExist:
+        print("원화 없음")
+        pass
 
     return render(request, 'upbit/new_index.html', context)
 
+
+@login_required
+def new_index(request):
+    return get_index_context(request, request.user)
+
+@login_required
+def user_index(request, username):
+    if request.user.is_staff:
+        User = get_user_model()
+        user = User.objects.get(username=username)
+        return get_index_context(request, user)
+    raise Http404("해당 페이지가 존재하지 않습니다.")
 
 not_market_list = ["KRW", "VTHO"]
 alter_rate = 1
 not_alter_list = ['BTC', 'ETH']
 
-def print_market_list(list_name, list):
+def print_market_list(list_name, list, sort=""):
     for m in list:
+        if sort == "max":
+            print("{} {} {}% {}% {}%".format(list_name, m.get_market(), m.change_rate_from_avg, m.get_signed_change_rate(), m.get_positive_merge_rate()))
+        else:
         print("{} {} {}% {}%".format(list_name, m.get_market(), m.change_rate_from_avg, m.get_signed_change_rate()))
 
 def dryrun_inner(user):
@@ -345,21 +367,26 @@ def dryrun_inner(user):
     if config:
         coin_markets = get_coin_without_unuse(config, coin_markets)
     buy_list = coin_markets.filter(market_warning='NONE')
-    buy_rate_list = buy_list.filter(change_rate_from_avg__lt=config.buy_rate).order_by('priority', 'change_rate_from_avg')
-    buy_drop_list = buy_list.filter(signed_change_rate__lt=(config.get_negative_harddrop() / 100)).order_by('priority', 'signed_change_rate')
+    buy_rate_list = buy_list.filter(change_rate_from_avg__lte=config.buy_rate).order_by('priority', 'change_rate_from_avg')
+    buy_drop_list = buy_list.filter(signed_change_rate__lte=(config.get_negative_harddrop() / 100)).order_by('priority', 'signed_change_rate')
+
     print_market_list("buy_rate_market", buy_rate_list)
     print_market_list("buy_drop_market", buy_drop_list)
-    buy_list = (buy_rate_list[:3]+buy_drop_list[:3])
+    buy_list = sorted(list(buy_rate_list)+list(buy_drop_list), key=lambda t:t.get_negative_merge_rate())
+    print_market_list("buy_total_sorted", buy_list)
+    buy_list = buy_list[:config.unit_count]
+    print_market_list("buy_unit_count", buy_list)
     
     sell_list = coin_markets.filter(balance__gt=0)
-    sell_rate_list = sell_list.filter(change_rate_from_avg__gt=config.sell_rate).order_by('priority', '-change_rate_from_avg')
-    sell_drop_list = sell_list.filter(signed_change_rate__gt=(config.get_positive_harddrop() / 100)).order_by('priority', '-signed_change_rate')
+    sell_rate_list = sell_list.filter(change_rate_from_avg__gte=config.sell_rate).order_by('priority', '-change_rate_from_avg')
+    sell_drop_list = sell_list.filter(signed_change_rate__gte=(config.get_positive_harddrop() / 100)).order_by('priority', '-signed_change_rate')
+
     print_market_list("sell_rate_market", sell_rate_list)
     print_market_list("sell_drop_market", sell_drop_list)
-    sell_list = (sell_rate_list[:3]+sell_drop_list[:3])
+    sell_list = sorted(list(sell_rate_list)+list(sell_drop_list), key=lambda t:t.get_positive_merge_rate(), reverse=True)
 
     print_market_list("buy_market", buy_list)
-    print_market_list("sell_market", sell_list)
+    print_market_list("sell_market", sell_list, sort="max")
 
     print("판매 리스트 건수: {}건  구매 리스트 건수: {}건".format(len(sell_list), len(buy_list)))
 
@@ -495,6 +522,16 @@ class Coin:
         # print("{} block_size:{} block_count:{}".format(self.currency, self.blocksize, self.blocksize))
         # print("{} block {}".format(self.currency, self.priority))
 
+    def __init__(self, market):
+        if 'market' in market:
+            self.market = market['market']
+        if 'korean_name' in market:
+            self.korean_name = market['korean_name']
+        if 'english_name' in market:
+            self.english_name = market['english_name']
+        if 'market_warning' in market:
+            self.market_warning = market['market_warning']
+
     def get_market(self):
         return self.market
 
@@ -535,7 +572,16 @@ class Coin:
         return round((self.trade_price - self.avg_buy_price) / self.avg_buy_price * 100, 2)
 
     def get_sell_balance(self):
-        return self.balance / self.blockcount
+        block_balance = self.balance / self.blockcount
+        block_price = block_balance * self.trade_price
+        print("default balance:{}".format(block_balance))
+        print("block price: {}won".format(block_price))
+        if self.blockcount > 1 and block_price < ( self.blocksize * 91 / 100 ): 
+            need_block = math.ceil(self.blocksize / block_price)
+            print("{} block balance:{}".format(need_block, need_block * block_balance))
+            return block_balance * need_block
+        else:
+            return block_balance
 
     def get_sell_change_price(self):
         return int(self.get_sell_balance() * (self.trade_price - self.avg_buy_price))

@@ -15,4 +15,5 @@ urlpatterns = [
     path('detail/<str:market>/', views.detail_market, name='detail_market'),
     path('deposits/', views.deposits, name='deposits'),
     path('new_index/', views.index, name='new_index'),
+    path('user_index/<str:username>/', views.user_index, name='user_index')
 ]

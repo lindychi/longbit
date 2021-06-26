@@ -5,7 +5,6 @@ from urllib.parse import urlencode
 import hashlib
 import jwt
 import requests
-import json
 
 def make_payload(user, url, query={}, method="GET"):
     try:

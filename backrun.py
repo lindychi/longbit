@@ -17,11 +17,6 @@ def user_backrun(username):
     User = get_user_model()
     user = User.objects.get(username=username)
     config = UpbitConfig.objects.get(user=user)
-    # coins = CoinMarket.objects.filter(user=user)
-    # for c in coins:
-    #     c.last_trade = timezone.now() - datetime.timedelta(hours=2)
-    #     c.save()
-    # print("datetime done")
 
     while True:
         print()

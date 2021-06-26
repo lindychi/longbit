@@ -7,7 +7,7 @@ class UpbitConfig(models.Model):
     access_key = models.CharField(max_length=255)
     secret_key = models.CharField(max_length=255)
     sell_rate = models.FloatField(default=7)
-    buy_rate = models.FloatField(default=-3)
+    buy_rate = models.FloatField(default=0)
     alter_limit_block = models.FloatField(default=2)
     hard_drop = models.FloatField(default=20)
     new_buy_rate = models.FloatField(default=-50)
