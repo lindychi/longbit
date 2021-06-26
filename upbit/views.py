@@ -300,7 +300,7 @@ def get_index_context(request, user):
     # krw_coin = CoinMarket.objects.get(user=request.user, market="KRW-KRW")
     # krw = krw_coin.get_json()
 
-    markets = get_coin_without_unuse(config, CoinMarket.objects.filter(user=user))
+    markets = get_coin_without_unuse(config, CoinMarket.objects.filter(user=user)).exclude(market='KRW-KRW')
     if config:
     markets = markets.order_by('priority', '-buy_balance')
     context['config'] = config

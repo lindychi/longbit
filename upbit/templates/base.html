@@ -23,10 +23,10 @@
         <a href="{% url 'upbit:refresh_data' %}">데이터 리프레쉬</a></br> {% endcomment %}
 
         <div class="d-flex flex-row" styles="height:100%;">
-            <div class="d-flex flex-column flex-shrink-0 p-3 text-white bg-dark" style="width: 280px; ">
-                <a href="/" class="d-flex align-items-center mb-3 mb-md-0 me-md-auto text-white text-decoration-none">
-                    <svg class="bi me-2" width="40" height="32"><use xlink:href="#bootstrap"/></svg>
-                    <span class="fs-4">{% block header %}{% endblock %}</span>
+            <div class="d-flex flex-column flex-shrink-0 p-3 text-white bg-dark body_wrapper" style="width: 280px; ">
+                <a href="{% url 'upbit:index' %}" class="d-flex align-items-center mb-3 mb-md-0 me-md-auto text-white text-decoration-none">
+                    <img class="mb-4" src="{% static 'upbit/bitcoin.png' %}" alt="" width="32" height="32">
+                    Longbit
                 </a>
                 <hr>
                 <ul class="nav nav-pills flex-column mb-auto">
@@ -94,7 +94,7 @@
                 </div>
             </div>
             <div class="b-example-divider"></div>
-            <div class="d-flex flex-column flex-col p-3">
+            <div class="d-flex flex-column flex-col p-3 body_wrapper" style="overflow:scroll;">
             {% block body %}{% endblock %}
             </div>
         </div>
