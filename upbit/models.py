@@ -243,7 +243,7 @@ class CoinMarket(models.Model):
         self.save()
 
     def get_json(self):
-        return {'int_balance':self.balance}
+        return {'int_balance':int(self.balance)}
 
     def get_block_size(self):
         return self.bid_min_total * 1.1

@@ -1,30 +1,33 @@
 from io import IOBase
 from os import curdir
-from django.http.response import HttpResponse, HttpResponseRedirect
+from django.http.response import Http404, HttpResponse, HttpResponseRedirect
 from django.utils import timezone
-from django.shortcuts import render
+from django.shortcuts import redirect, render
 from django.contrib.auth.decorators import login_required
+from django.views import generic
+from django.urls import reverse, reverse_lazy
 from .models import Market, Order, CoinMarket
+from .forms import SignupForm
 from .model.UpbitConfig import UpbitConfig
 from .api.upbit import make_payload
+from django.contrib.auth import get_user_model
 
-import jwt
-import uuid
-import hashlib
-from urllib.parse import urlencode
-import requests
 import json
 import datetime
 import time
 import math
 
-def get_currency_list(request, currency='KRW'):
+def get_currency_list(request, currency='KRW', user=None):
     total_res = []
     page = 1
+    if user:
+        user = user
+    else:
+        user = request.user
     while True:
-        res = make_payload(request.user, '/v1/deposits', {'currency':currency, 'page':page})
-        total_res.extend(res.json())
-        if len(res.json()) < 100:
+        res = make_payload(user, '/v1/deposits', {'currency':currency, 'page':page})
+        total_res.extend(res)
+        if len(res) < 100:
             break
         page = page + 1
     return total_res
@@ -309,6 +312,28 @@ def get_index_context(request, user):
     except CoinMarket.DoesNotExist:
         print("원화 없음")
         pass
+
+    if 'krw_data' in context:
+        total_order_balance = 0
+        total_real_balance = 0
+        for m in markets:
+            total_order_balance = total_order_balance + m.get_buy_balance()
+            total_real_balance = total_real_balance + m.get_current_balance()
+        context['krw_data']['total_order_balance'] = int(total_order_balance)
+        context['krw_data']['total_real_balance'] = int(total_real_balance)
+
+        total_deposit_balance = 0
+        for d in get_currency_list(request, user=user):
+            if d['state'] == 'ACCEPTED':
+                total_deposit_balance = total_deposit_balance + int(float(d['amount']))
+            else:
+                print(d)
+        context['krw_data']['total_deposit_balance'] = total_deposit_balance
+
+        context['krw_data']['total_order_gap'] = context['krw_data']['total_order_balance'] - context['krw_data']['total_deposit_balance']
+        context['krw_data']['total_order_gap_rate'] = round(context['krw_data']['total_order_gap'] / context['krw_data']['total_deposit_balance'] * 100, 2)
+        context['krw_data']['total_real_gap'] = context['krw_data']['total_real_balance'] - context['krw_data']['total_deposit_balance']
+        context['krw_data']['total_real_gap_rate'] = round(context['krw_data']['total_real_gap'] / context['krw_data']['total_deposit_balance'] * 100, 2)
 
     return render(request, 'upbit/new_index.html', context)
 
@@ -768,3 +793,7 @@ class SignupView(generic.edit.CreateView):
     template_name = 'registration/signup.html'
     form_class = SignupForm
     success_url = reverse_lazy('upbit:index')
+
+def admin_userlist(request):
+    users = get_user_model().objects.all().exclude(username=request.user.username)
+    return render(request, 'upbit/admin_userlist.html', {'users':users})

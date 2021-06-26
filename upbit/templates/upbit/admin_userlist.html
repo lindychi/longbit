@@ -1,0 +1,17 @@
+{% extends 'base.html' %}
+
+{% block body %}
+유저리스트
+<table class="table table-striped">
+    <tr>
+        <th>유저아이디</th>
+        <th>해당 유저의 인덱스</th>
+    </tr>
+{% for u in users %}
+    <tr>
+        <td>{{ u.username }}</td>
+        <td><a href="{% url 'upbit:user_index' u.username %}">페이지로 이동</a></td>
+    </tr>    
+{% endfor %}
+</table>
+{% endblock %}

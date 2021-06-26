@@ -59,6 +59,13 @@
                     설정
                     </a>
                 </li> {% endcomment %}
+                {% if request.user.is_staff %}
+                <li>
+                    <a href="{% url 'upbit:admin_userlist' %}" class="nav-link text-white">
+                    타 유저 리스트
+                    </a>
+                </li>
+                {% endif %}
                 <li>
                     <a href="{% url 'logout' %}" class="nav-link text-white">
                     로그아웃

@@ -3,10 +3,10 @@
 {% block body %}
 <div>
     <div>
-        {{ krw_data }}
         <h3>원화: {{ krw_data.int_balance }}원</h3>
-        <h3>총 주문금: {{ krw_data.total_order_balance }}원</h3>
-        <h3>총 입금액: {{ krw_data.total_deposit_balance }}원 ({{ krw_data.total_order_gap }}원 - {{ krw_data.total_order_gap_rate }}%)</h3>
+        <h3>총 주문금: {{ krw_data.total_order_balance }}원({{ krw_data.total_order_gap }}원 {{ krw_data.total_order_gap_rate }}%)</h3>
+        <h3>총 평가금: {{ krw_data.total_real_balance }}원({{ krw_data.total_real_gap }}원 {{ krw_data.total_real_gap_rate }}%)</h3>
+        <h3>총 입금액: {{ krw_data.total_deposit_balance }}원</h3>
     </div>
 </div>
 <table class="table table-striped">
