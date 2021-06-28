@@ -59,7 +59,7 @@
         <td>
             {{ r.get_blockcount }}({{ r.get_bid_min_total }}{{ r.get_unit_currency }})
         </td>
-        <td{% if r.get_signed_change_rate > config.get_positive_hard_drop %} class="bg-danger"{% elif r.get_signed_change_rate < config.get_negative_hard_drop %} class="bg-primary"{% else %} class="none"{% endif %} 
+        <td{% if r.get_signed_change_rate > config.get_positive_harddrop %} class="bg-primary"{% elif r.get_signed_change_rate < config.get_negative_harddrop %} class="bg-danger"{% else %} class="none"{% endif %} 
             style="{% if r.get_signed_change_rate > 0 %}color:red;{% else %}color:blue;{% endif %}">
             {{ r.get_signed_change_rate }}%
         </td>
