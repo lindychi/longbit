@@ -4,6 +4,7 @@ from django.http.response import Http404, HttpResponse, HttpResponseRedirect
 from django.utils import timezone
 from django.shortcuts import redirect, render
 from django.contrib.auth.decorators import login_required
+from django.db.models import Sum
 from django.views import generic
 from django.urls import reverse, reverse_lazy
 from .models import Market, Order, CoinMarket
@@ -17,15 +18,19 @@ import datetime
 import time
 import math
 
-def get_currency_list(request, currency='KRW', user=None):
+def get_currency_list(request, currency='KRW', user=None, url='deposits', state='accepted'):
     total_res = []
     page = 1
+
+    # 관리자에서 타 유저의 페이지를 보기위해 필요한 과정
     if user:
         user = user
     else:
         user = request.user
+
     while True:
-        res = make_payload(user, '/v1/deposits', {'currency':currency, 'page':page})
+        query = {'currency':currency, 'page':page, 'state':state}
+        res = make_payload(user, '/v1/{}'.format(url), query)
         total_res.extend(res)
         if len(res) < 100:
             break
@@ -323,16 +328,30 @@ def get_index_context(request, user):
         context['krw_data']['total_real_balance'] = int(total_real_balance)
 
         total_deposit_balance = 0
-        for d in get_currency_list(request, user=user):
+        deposits = get_currency_list(request, user=user)
+        if 'error' not in deposits:
+            for d in deposits:
             if d['state'] == 'ACCEPTED':
                 total_deposit_balance = total_deposit_balance + int(float(d['amount']))
             else:
                 print(d)
-        context['krw_data']['total_deposit_balance'] = total_deposit_balance
+        else:
+            print(deposits)
+        total_withdraw_balance = 0
+        withdraws = get_currency_list(request, user=user, url='withdraws', state='done')
+        if 'error' not in withdraws:
+            for w in withdraws:
+                if w['state'] == 'DONE':
+                    total_withdraw_balance = total_withdraw_balance + int(float(d['amount']))
+                else:
+                    print(w)
+        else:
+            print(withdraws)
+        context['krw_data']['total_deposit_balance'] = total_deposit_balance - total_withdraw_balance
 
-        context['krw_data']['total_order_gap'] = context['krw_data']['total_order_balance'] - context['krw_data']['total_deposit_balance']
+        context['krw_data']['total_order_gap'] = context['krw_data']['total_order_balance'] - (context['krw_data']['total_deposit_balance'] - context['krw_data']['int_balance'])
         context['krw_data']['total_order_gap_rate'] = round(context['krw_data']['total_order_gap'] / context['krw_data']['total_deposit_balance'] * 100, 2)
-        context['krw_data']['total_real_gap'] = context['krw_data']['total_real_balance'] - context['krw_data']['total_deposit_balance']
+        context['krw_data']['total_real_gap'] = context['krw_data']['total_real_balance'] - (context['krw_data']['total_deposit_balance'] - context['krw_data']['int_balance'])
         context['krw_data']['total_real_gap_rate'] = round(context['krw_data']['total_real_gap'] / context['krw_data']['total_deposit_balance'] * 100, 2)
 
     return render(request, 'upbit/new_index.html', context)
