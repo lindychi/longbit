@@ -267,6 +267,10 @@ class CoinMarket(models.Model):
                 break
             else:
                 count = count + 1
+
+        # 최소단위 블럭만 남았을떄 깔끔하게 털도록 처리
+        if self.get_blockcount() - count < count:
+            count = self.get_blockcount()
         
         return float(count) * block_balance
 
