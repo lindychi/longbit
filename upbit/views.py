@@ -106,7 +106,7 @@ def index(request):
         elif deposit['state'] == 'REJECTED':
             continue
         else:
-            print(deposit)
+            print("deposit error result: {}".format(deposit))
     krw_data['total_deposit_balance'] = int(total_deposit_krw)
     krw_data['total_order_gap'] = int(krw_data['total_order_balance']) - int(krw_data['total_deposit_balance']) + int(krw_data['krw_price'])
     krw_data['total_order_gap_rate'] = round(float(int(krw_data['total_order_gap']) / int(krw_data['total_deposit_balance']) * 100), 2)
@@ -211,22 +211,25 @@ def all_accounts_update(user):
     if 'error' in accounts:
         return accounts
 
+    no_market_count = 0
     for a in accounts:
         market_name = "{}-{}".format(a['unit_currency'], a['currency'])
         try:
             coin_market = CoinMarket.objects.get(user=user, market=market_name)
+
         except CoinMarket.DoesNotExist:
             if market_name == "KRW-KRW":
                 coin_market = CoinMarket.objects.create(user=user, market=market_name, korean_name="원화", english_name="korean_won", market_warning="NONE")
             else:
                 print("no market {}".format(market_name))
+                no_market_count = no_market_count + 1
             continue
         coin_market.set_account_json(a)
+    return {'accounts':accounts, 'no_market_count':no_market_count}
 
 def order_chance_update(user, config=None):
     total_markets = CoinMarket.objects.filter(user=user, bid_min_total=0).exclude(market="KRW-KRW")
-    if config:
-        total_markets = get_coin_without_unuse(config, total_markets)
+    total_markets = get_coin_without_unuse(total_markets, config)
 
     for m in total_markets:
         print("chance call {}".format(m.get_market()))
@@ -237,8 +240,7 @@ def order_chance_update(user, config=None):
 
 def ticker_data_update(user, config=None):
     total_markets = CoinMarket.objects.filter(user=user, ticker_update__lt=(timezone.now() - datetime.timedelta(minutes=30))) | CoinMarket.objects.filter(user=user, trade_price__lte=0)
-    if config:
-        total_markets = get_coin_without_unuse(config, total_markets)
+    total_markets = get_coin_without_unuse(total_markets, config)
     query = {'markets':",".join(list(map(lambda x:x.get_market(), total_markets)))}
     ticker_prices = make_payload(user, '/v1/ticker', query)
     if 'error' not in ticker_prices:
@@ -247,7 +249,6 @@ def ticker_data_update(user, config=None):
             coin_market.set_ticker(t)
     else:
         for m in total_markets:
-            print(m.get_market())
             query = {'markets':m.get_market()}
             t = make_payload(user, '/v1/ticker', query)
             if 'error' in t:
@@ -259,11 +260,6 @@ def ticker_data_update(user, config=None):
                 m.set_ticker(t[0])
 
 def get_or_result(origin_objects, new_objects):
-    if origin_objects:
-        print("origin_objects {} {}".format(origin_objects, len(origin_objects)))
-    else:
-        print("origin_objects None None")
-    print("new_objects {} {}".format(new_objects, len(new_objects)))
     return_objects = None
     if origin_objects:
         return_objects = origin_objects | new_objects
@@ -271,7 +267,8 @@ def get_or_result(origin_objects, new_objects):
         return_objects = new_objects
     return return_objects
 
-def get_coin_without_unuse(config, markets):
+def get_coin_without_unuse(markets, config):
+    if config:
     return_markets = None
     print("krw {} usdt {} btc {}".format(config.krw_market, config.usdt_market, config.btc_market))
     if config.krw_market:
@@ -281,6 +278,62 @@ def get_coin_without_unuse(config, markets):
     if config.btc_market:
         return_markets = get_or_result(return_markets, markets.filter(market__startswith='BTC'))
     return return_markets
+    else:
+        return markets
+
+def get_krw_data(user, markets):
+    context = {}
+    try:
+        krw_market = CoinMarket.objects.get(user=user, market="KRW-KRW")
+        context = krw_market.get_json()
+    except CoinMarket.DoesNotExist:
+        print("원화 없음")
+        pass
+
+    if 'int_balance' in context:
+        total_order_balance = 0
+        total_real_balance = 0
+        for m in markets:
+            total_order_balance = total_order_balance + m.get_buy_balance()
+            total_real_balance = total_real_balance + m.get_current_balance()
+        context['total_order_balance'] = int(total_order_balance)
+        context['total_real_balance'] = int(total_real_balance)
+
+        total_deposit_balance = 0
+        deposits = get_currency_list(request=None, user=user)
+        if 'error' not in deposits:
+            for d in deposits:
+            if d['state'] == 'ACCEPTED':
+                total_deposit_balance = total_deposit_balance + int(float(d['amount']))
+            else:
+                    print("deposit state not accepted: {}".format(d))
+        else:
+            print("deposit error result: {}".format(deposits))
+        total_withdraw_balance = 0
+        withdraws = get_currency_list(request=None, user=user, url='withdraws', state='done')
+        if 'error' not in withdraws:
+            for w in withdraws:
+                if w['state'] == 'DONE':
+                    total_withdraw_balance = total_withdraw_balance + int(float(d['amount']))
+                else:
+                    print("withdraw state is not done: {}".format(w))
+        else:
+            print("withdraws result error: {}".format(withdraws))
+        context['total_deposit_balance'] = total_deposit_balance - total_withdraw_balance
+        context['total_used_balance'] = context['total_deposit_balance'] - context['int_balance']
+
+        context['total_order_gap'] = context['total_order_balance'] - (context['total_deposit_balance'] - context['int_balance'])
+        context['total_order_gap_rate'] = round(context['total_order_gap'] / context['total_deposit_balance'] * 100, 2)
+        context['total_real_gap'] = context['total_real_balance'] - (context['total_deposit_balance'] - context['int_balance'])
+        context['total_real_gap_rate'] = round(context['total_real_gap'] / context['total_deposit_balance'] * 100, 2)
+    return context
+
+def get_markets_context(user, config):
+    print("get_markets_context")
+    context = {}
+    markets = get_coin_without_unuse(CoinMarket.objects.filter(user=user).exclude(market='KRW-KRW').order_by('priority', '-buy_balance'), config)
+    context['markets'] = markets
+    return context
 
 
 def get_index_context(request, user):
@@ -289,6 +342,7 @@ def get_index_context(request, user):
         config = UpbitConfig.objects.get(user=user)
     except UpbitConfig.DoesNotExist:
         config = UpbitConfig.objects.create(user=user)
+    context['config'] = config
 
     # 전체 마켓 리스트를 리스트업한다.
     # total_market_listup(request.user)
@@ -305,54 +359,12 @@ def get_index_context(request, user):
     # krw_coin = CoinMarket.objects.get(user=request.user, market="KRW-KRW")
     # krw = krw_coin.get_json()
 
-    markets = get_coin_without_unuse(config, CoinMarket.objects.filter(user=user)).exclude(market='KRW-KRW')
-    if config:
-    markets = markets.order_by('priority', '-buy_balance')
-    context['config'] = config
-    context['markets'] = markets
+    markets_context = get_markets_context(user, config)
+    context = dict(context, **markets_context)
 
-    try:
-        krw_market = CoinMarket.objects.get(user=user, market="KRW-KRW")
-        context['krw_data'] = krw_market.get_json()
-    except CoinMarket.DoesNotExist:
-        print("원화 없음")
-        pass
+    context['krw_data'] = get_krw_data(user, context['markets'])
 
-    if 'krw_data' in context:
-        total_order_balance = 0
-        total_real_balance = 0
-        for m in markets:
-            total_order_balance = total_order_balance + m.get_buy_balance()
-            total_real_balance = total_real_balance + m.get_current_balance()
-        context['krw_data']['total_order_balance'] = int(total_order_balance)
-        context['krw_data']['total_real_balance'] = int(total_real_balance)
-
-        total_deposit_balance = 0
-        deposits = get_currency_list(request, user=user)
-        if 'error' not in deposits:
-            for d in deposits:
-            if d['state'] == 'ACCEPTED':
-                total_deposit_balance = total_deposit_balance + int(float(d['amount']))
-            else:
-                print(d)
-        else:
-            print(deposits)
-        total_withdraw_balance = 0
-        withdraws = get_currency_list(request, user=user, url='withdraws', state='done')
-        if 'error' not in withdraws:
-            for w in withdraws:
-                if w['state'] == 'DONE':
-                    total_withdraw_balance = total_withdraw_balance + int(float(d['amount']))
-                else:
-                    print(w)
-        else:
-            print(withdraws)
-        context['krw_data']['total_deposit_balance'] = total_deposit_balance - total_withdraw_balance
-
-        context['krw_data']['total_order_gap'] = context['krw_data']['total_order_balance'] - (context['krw_data']['total_deposit_balance'] - context['krw_data']['int_balance'])
-        context['krw_data']['total_order_gap_rate'] = round(context['krw_data']['total_order_gap'] / context['krw_data']['total_deposit_balance'] * 100, 2)
-        context['krw_data']['total_real_gap'] = context['krw_data']['total_real_balance'] - (context['krw_data']['total_deposit_balance'] - context['krw_data']['int_balance'])
-        context['krw_data']['total_real_gap_rate'] = round(context['krw_data']['total_real_gap'] / context['krw_data']['total_deposit_balance'] * 100, 2)
+    print("krw_data context check {}".format(context))
 
     return render(request, 'upbit/new_index.html', context)
 
@@ -383,7 +395,7 @@ def print_market_list(list_name, list, sort=""):
 def dryrun_inner(user):
     config = UpbitConfig.objects.get(user=user)
     total_market_listup(user)
-    all_accounts_update(user)
+    accounts_result = all_accounts_update(user)
     order_chance_update(user, config) 
     while True:
     try:
@@ -396,38 +408,31 @@ def dryrun_inner(user):
     total_balance = total_order_balance + krw['int_balance']
     print("총 주문액 + 잔금액 = {}원".format(total_balance))
 
-    alter_order_balance = total_balance * alter_rate
-    one_alter_max_value = alter_order_balance / alter_count * config.alter_limit_block
-    print("알터코인 한종목의 최대 지분액: {}원({}%)".format(one_alter_max_value, round(one_alter_max_value/total_balance*100, 2)))
-    one_alter_max_block_count = one_alter_max_value / 5500
-    print("지분액 대비 블럭수: {}".format(one_alter_max_block_count))
-    alter_delay_on_oneday = 24 / one_alter_max_block_count
-    hour_delay = int(alter_delay_on_oneday)
-    minute_delay = int((alter_delay_on_oneday - hour_delay) * 60)
-    print("하루 내 알터코인 딜레이: {}   {}시 {}분".format(alter_delay_on_oneday, hour_delay, minute_delay))
-    alter_delay_on_onday_sec = hour_delay * 3600 + minute_delay * 60
+    # 전체 마켓 수 계산 for 평균 지분액 계산을 위해
+    market_count = len(accounts_result['accounts']) - accounts_result['no_market_count'] - 1 #krw_market
+    markets = get_markets_context(user, config)
+    krw_data = get_krw_data(user, markets['markets'])
+
+    each_coin_max_krw = krw_data['total_order_balance'] / market_count
+    print("최대 주문 가능 금액: {}원({}%)".format(int(each_coin_max_krw), round(100 / market_count, 2)))
 
     coin_markets = CoinMarket.objects.filter(user=user, last_trade__lt=(timezone.now() - datetime.timedelta(hours=1))).exclude(market="KRW-KRW")
-    if config:
-        coin_markets = get_coin_without_unuse(config, coin_markets)
-    buy_list = coin_markets.filter(market_warning='NONE')
-    buy_rate_list = buy_list.filter(change_rate_from_avg__lte=config.buy_rate).order_by('priority', 'change_rate_from_avg')
-    buy_drop_list = buy_list.filter(signed_change_rate__lte=(config.get_negative_harddrop() / 100)).order_by('priority', 'signed_change_rate')
+    coin_markets = get_coin_without_unuse(coin_markets, config)
 
-    print_market_list("buy_rate_market", buy_rate_list)
-    print_market_list("buy_drop_market", buy_drop_list)
-    buy_list = sorted(list(buy_rate_list)+list(buy_drop_list), key=lambda t:t.get_negative_merge_rate())
-    print_market_list("buy_total_sorted", buy_list)
+    buy_list = coin_markets.filter(market_warning='NONE', buy_balance__lt = each_coin_max_krw)
+    buy_rate_list = buy_list.filter(change_rate_from_avg__lte=config.buy_rate).exclude(signed_change_rate__gte=(config.get_positive_harddrop() / 100)).order_by('priority', 'change_rate_from_avg')
+    buy_drop_list = buy_list.filter(signed_change_rate__lte=(config.get_negative_harddrop() / 100)).exclude(change_rate_from_avg__gte=config.sell_rate).order_by('priority', 'signed_change_rate')
+
+    buy_list = sorted(list(set(list(buy_rate_list)+list(buy_drop_list))), key=lambda t:t.get_negative_merge_rate())
     buy_list = buy_list[:config.unit_count]
     print_market_list("buy_unit_count", buy_list)
     
     sell_list = coin_markets.filter(balance__gt=0)
-    sell_rate_list = sell_list.filter(change_rate_from_avg__gte=config.sell_rate).order_by('priority', '-change_rate_from_avg')
-    sell_drop_list = sell_list.filter(signed_change_rate__gte=(config.get_positive_harddrop() / 100)).order_by('priority', '-signed_change_rate')
+    sell_rate_list = sell_list.filter(change_rate_from_avg__gte=config.sell_rate).exclude(signed_change_rate__lt=(config.get_negative_harddrop() / 100)).order_by('priority', '-change_rate_from_avg')
+    sell_drop_list = sell_list.filter(signed_change_rate__gte=(config.get_positive_harddrop() / 100)).exclude(change_rate_from_avg__lte=config.buy_rate).order_by('priority', '-signed_change_rate')
 
-    print_market_list("sell_rate_market", sell_rate_list)
-    print_market_list("sell_drop_market", sell_drop_list)
-    sell_list = sorted(list(sell_rate_list)+list(sell_drop_list), key=lambda t:t.get_positive_merge_rate(), reverse=True)
+    sell_list = sorted(list(set(list(sell_rate_list)+list(sell_drop_list))), key=lambda t:t.get_positive_merge_rate(), reverse=True)
+    sell_list = sell_list[:config.unit_count]
 
     print_market_list("buy_market", buy_list)
     print_market_list("sell_market", sell_list, sort="max")
@@ -703,7 +708,7 @@ def sell_block(request):
             order = Order.objects.create(user=request.user, market=market, created_at=timezone.now(),
                                          side=request.POST['side'], uuid=res_json['uuid'])
         else:
-            print(res_json)
+            print("sell_block not POST result: {}".format(res_json))
 
     return HttpResponseRedirect(request.META['HTTP_REFERER'])
 
@@ -716,7 +721,7 @@ def deposit_krw(request):
 
         res = make_payload(request.user, '/v1/deposits/krw', query, method="POST")
         res_json = res.json()
-        print(res_json)
+        print("deposit_krw result: {}".format(res_json))
 
     return HttpResponseRedirect(request.META['HTTP_REFERER'])
 
@@ -734,7 +739,7 @@ def refresh_data(request):
         for j in json:
             if j['side'] == 'ask' and not j['price']:
                 j['price'] = get_uuid_price(request, j['uuid'])
-                print(j['price'])
+                print("order_price result: {}".format(j['price']))
             elif j['side'] == 'bid' and not j['volume']:
                 j['volume'] = j['executed_volume']
                 # order_json = make_payload(request.user, '/v1/order', {'uuid':j['uuid']}).json()
@@ -770,7 +775,7 @@ def refresh_market(request, market):
     for j in json:
         if j['side'] == 'ask' and not j['price']:
             j['price'] = get_uuid_price(request, j['uuid'])
-            print(j['price'])
+            print("orders price result: {}".format(j['price']))
         elif j['side'] == 'bid' and not j['volume']:
             j['volume'] = j['executed_volume']
             # order_json = make_payload(request.user, '/v1/order', {'uuid':j['uuid']}).json()
