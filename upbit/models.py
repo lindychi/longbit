@@ -257,8 +257,11 @@ class CoinMarket(models.Model):
         self.save()
 
     def get_sell_balance(self):
-        print("get sell balance: {}ADX {}KRW".format(self.balance, self.balance*self.trade_price))
+        print("get sell balance: {}{} {}KRW".format(self.balance, self.get_unit_currency(), self.balance*self.trade_price))
         count = 1
+        if self.get_blockcount() < 1:
+            return self.balance
+
         block_balance = self.balance / float(self.get_blockcount())
         print("block count: {} block balance: {}".format(self.get_blockcount(), block_balance))
         while True:
