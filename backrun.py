@@ -66,4 +66,6 @@ def user_backrun(username):
 
 if __name__ == "__main__":
     arguments = sys.argv
+    if len(arguments) >= 3:
+        time.sleep(int(arguments[2]))
     user_backrun(arguments[1])
