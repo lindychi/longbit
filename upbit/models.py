@@ -233,7 +233,7 @@ class CoinMarket(models.Model):
         if self.bid_min_total > 0:
             return int(self.get_buy_balance() / (self.bid_min_total * 1.1))
         else:
-            return 0
+            return 0 
 
     def get_bid_min_total(self):
         return int(self.bid_min_total)
@@ -283,8 +283,14 @@ class CoinMarket(models.Model):
     def get_signed_change_rate(self):
         return round(self.signed_change_rate * 100, 2)
 
+    # def get_negative_merge_rate(self):
+    #     return min(self.signed_change_rate * 100, self.change_rate_from_avg)
+
+    # def get_positive_merge_rate(self):
+    #     return max(self.signed_change_rate * 100, self.change_rate_from_avg)
+
     def get_negative_merge_rate(self):
-        return min(self.signed_change_rate * 100, self.change_rate_from_avg)
+        return self.signed_change_rate * 100 + self.change_rate_from_avg
 
     def get_positive_merge_rate(self):
-        return max(self.signed_change_rate * 100, self.change_rate_from_avg)
+        return self.signed_change_rate * 100 + self.change_rate_from_avg
