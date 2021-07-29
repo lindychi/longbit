@@ -294,3 +294,35 @@ class CoinMarket(models.Model):
 
     def get_positive_merge_rate(self):
         return self.signed_change_rate * 100 + self.change_rate_from_avg
+
+
+
+class SellResult(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    buy = models.FloatField(default=0.0)
+    sell = models.FloatField(default=0.0)
+    
+    def add_new_trade(self, buy, sell):
+        self.buy = self.buy + buy
+        self.sell = self.sell + sell
+        self.save()
+
+    def get_reserve(self, config):
+        return (self.sell - self.buy) * config.reserve_rate
+
+    def get_reserve_rate(self):
+        if self.buy > 0:
+            return round((self.sell - self.buy) / self.buy * 100, 2)
+        else:
+            return 0.0
+
+    def decrese_reserve(self, config, balance):
+        if self.get_reserve(config) == balance:
+            self.buy = 0
+            self.sell = 0
+        else:
+            rate = (self.get_reserve(config) - balance) / self.get_reserve(config)
+            print(rate)
+            self.buy = self.buy * rate
+            self.sell = self.sell * rate
+        self.save()

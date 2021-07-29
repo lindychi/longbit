@@ -15,6 +15,7 @@ class UpbitConfig(models.Model):
     btc_market = models.BooleanField(default=False)
     usdt_market = models.BooleanField(default=False)
     unit_count = models.IntegerField(default=1)
+    reserve_rate = models.FloatField(default=0.5)
 
     def __str__(self):
         return "{} - {}".format(self.user, self.access_key)

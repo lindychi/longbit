@@ -1,0 +1,26 @@
+{% extends 'base.html' %}
+
+{% block body %}
+<h4>현재 유보금: {{ krw_data.int_reserve }}원</h4>
+<small>
+    이득금 중 절반을 유보금으로 설정하여 재투자하지않고 유지해둡니다.</br>
+    재투자나 자금 회수시 사용할 수 있는 메뉴입니다.</br>
+    자금 회수시에는 출금 후 유보금을 변경해주세요.
+</small>
+
+<form method="POST" class="d-inline">
+    {% csrf_token %}
+    <input type="text" name="reserve_balance" id="id_reserve_balance" autocomplete="off"/>
+    <input type="submit" value="유보금 회수" class="btn btn-sm btn-success">
+</form>
+<button id="add_reserve_btn" class="btn btn-sm btn-secondary">전액</button></br>
+{% for e in error %}
+    <div class="text-danger">{{ e }}</div>
+{% endfor %}
+
+<script>
+$("#add_reserve_btn").click(function(e){
+    $("#id_reserve_balance").val({{ krw_data.int_reserve }});
+})
+</script>
+{% endblock %}

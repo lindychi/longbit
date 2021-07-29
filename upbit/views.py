@@ -7,7 +7,7 @@ from django.contrib.auth.decorators import login_required
 from django.db.models import Sum
 from django.views import generic
 from django.urls import reverse, reverse_lazy
-from .models import Market, Order, CoinMarket
+from .models import Market, Order, CoinMarket, OrderMarket, SellResult
 from .forms import SignupForm
 from .model.UpbitConfig import UpbitConfig
 from .api.upbit import make_payload
@@ -42,19 +42,28 @@ def get_order_list(request):
     page = 1
     while True:
         res = make_payload(request.user, '/v1/orders', {'state':'done', 'page':page})
-        total_res.extend(res.json())
-        if len(res.json()) < 100:
+        total_res.extend(res)
+        if len(res) < 100:
             break
         page = page + 1
     total_res = sorted(total_res, key=lambda x:x['created_at'], reverse=True)
     return total_res
 
+def get_current_krw(user):
+    krw_data = {}
+    account_json_data = make_payload(user, '/v1/accounts')
+
+    for r in account_json_data:
+        if r['currency'] == 'KRW':
+            krw_data = r
+            break
+    krw_data['balance'] = float(krw_data['balance'])
+    return krw_data
+
+
 # Create your views here.
 @login_required
 def index(request):
-    accounts_res = make_payload(request.user, '/v1/accounts')
-    account_json_data = accounts_res.json()
-
     market_codes = make_payload(request.user, "/v1/market/all", query={"isDetails":"true"})
     market_names = {}
     coins = []
@@ -69,6 +78,8 @@ def index(request):
     krw_price_data = []
     total_order_balance = 0.0
     account_names = []
+
+    account_json_data = make_payload(request.user, '/v1/accounts')
     for r in account_json_data:
         if 'KRW-'+r['currency'] in market_names:
             r['korean_name'] = market_names['KRW-'+r['currency']]['korean_name']
@@ -281,7 +292,7 @@ def get_coin_without_unuse(markets, config):
     else:
         return markets
 
-def get_krw_data(user, markets):
+def get_krw_data(user, markets, config):
     context = {}
     try:
         krw_market = CoinMarket.objects.get(user=user, market="KRW-KRW")
@@ -290,9 +301,20 @@ def get_krw_data(user, markets):
         print("원화 없음")
         pass
 
+    try:
+        sr = SellResult.objects.get(user=user)
+    except SellResult.DoesNotExist:
+        sr = SellResult.objects.create(user=user)
+    
     if 'int_balance' in context:
         total_order_balance = 0
         total_real_balance = 0
+
+        # reserve 선처리 
+        context['int_balance'] = int(context['int_balance']) - int(sr.get_reserve(config))
+        context['int_reserve'] = int(sr.get_reserve(config))
+        context['float_reserve_rate'] = float(sr.get_reserve_rate())
+
         for m in markets:
             total_order_balance = total_order_balance + m.get_buy_balance()
             total_real_balance = total_real_balance + m.get_current_balance()
@@ -320,11 +342,11 @@ def get_krw_data(user, markets):
         else:
             print("withdraws result error: {}".format(withdraws))
         context['total_deposit_balance'] = total_deposit_balance - total_withdraw_balance
-        context['total_used_balance'] = context['total_deposit_balance'] - context['int_balance']
+        context['total_used_balance'] = context['total_deposit_balance'] - context['int_balance'] - context['int_reserve']
 
-        context['total_order_gap'] = context['total_order_balance'] - (context['total_deposit_balance'] - context['int_balance'])
+        context['total_order_gap'] = context['total_order_balance'] - (context['total_deposit_balance'] - context['int_balance'] - context['int_reserve'])
         context['total_order_gap_rate'] = round(context['total_order_gap'] / context['total_deposit_balance'] * 100, 2)
-        context['total_real_gap'] = context['total_real_balance'] - (context['total_deposit_balance'] - context['int_balance'])
+        context['total_real_gap'] = context['total_real_balance'] - (context['total_deposit_balance'] - context['int_balance'] - context['int_reserve'])
         context['total_real_gap_rate'] = round(context['total_real_gap'] / context['total_deposit_balance'] * 100, 2)
     return context
 
@@ -362,23 +384,23 @@ def get_index_context(request, user):
     markets_context = get_markets_context(user, config)
     context = dict(context, **markets_context)
 
-    context['krw_data'] = get_krw_data(user, context['markets'])
+    context['krw_data'] = get_krw_data(user, context['markets'], config=config)
 
     print("krw_data context check {}".format(context))
 
-    return render(request, 'upbit/new_index.html', context)
+    return context
 
 
 @login_required
 def new_index(request):
-    return get_index_context(request, request.user)
+    return render(request, 'upbit/new_index.html', get_index_context(request, request.user))
 
 @login_required
 def user_index(request, username):
     if request.user.is_staff:
         User = get_user_model()
         user = User.objects.get(username=username)
-        return get_index_context(request, user)
+        return render(request, 'upbit/new_index.html', get_index_context(request, user))
     raise Http404("해당 페이지가 존재하지 않습니다.")
 
 not_market_list = ["KRW", "VTHO"]
@@ -821,3 +843,32 @@ class SignupView(generic.edit.CreateView):
 def admin_userlist(request):
     users = get_user_model().objects.all().exclude(username=request.user.username)
     return render(request, 'upbit/admin_userlist.html', {'users':users})
+
+def modify_reserve(request):
+    if request.method == "POST":
+        try:
+            balance = int(request.POST['reserve_balance'])
+        except ValueError:
+            context = get_index_context(request, request.user)
+            context['error'] = ["숫자를 입력해주세요."]
+            return render(request, 'upbit/modify_reserve.html', context)
+        
+        try:
+            config = UpbitConfig.objects.get(user=request.user)
+        except UpbitConfig.DoesNotExist:
+            config = UpbitConfig.objects.create(user=request.user)
+
+        try:
+            sr = SellResult.objects.get(user=request.user)
+        except SellResult.DoesNotExist:
+            sr = SellResult.objects.create(user=request.user)
+
+        if balance > sr.get_reserve(config):
+            context = get_index_context(request, request.user)
+            context['error'] = ["입력한 유보금이 할당된 유보금보다 큽니다."]
+            return render(request, 'upbit/modify_reserve.html', context)
+
+        sr.decrese_reserve(config, balance)
+        return HttpResponseRedirect(request.META['HTTP_REFERER'])
+
+    return render(request, 'upbit/modify_reserve.html', get_index_context(request, request.user))

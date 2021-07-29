@@ -17,4 +17,5 @@ urlpatterns = [
     path('new_index/', views.index, name='new_index'),
     path('user_index/<str:username>/', views.user_index, name='user_index'),
     path('admin_userlist/', views.admin_userlist, name='admin_userlist'),
+    path('modify_reserve/', views.modify_reserve, name='modify_reserve'),
 ]
